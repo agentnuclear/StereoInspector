@@ -23,6 +23,8 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
+import numpy as np
+
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
@@ -659,18 +661,138 @@ def get_default_coeffs() -> Dict[str, List[float]]:
             for tname, coeffs in SCORING_COEFFICIENTS.items()}
 
 
+def compute_type_loss(params: np.ndarray, tname: str,
+                       issues: List[LabeledIssue],
+                       coeff_defs: List[Coeff],
+                       ref_coeffs: Dict[str, List[float]],
+                       confidence_threshold: float) -> float:
+    coeffs = deepcopy(ref_coeffs)
+    coeffs[tname] = list(params)
+    return compute_loss(issues, coeffs, confidence_threshold)
+
+
+def run_scipy_optimize(issues: List[LabeledIssue],
+                       ref_coeffs: Dict[str, List[float]],
+                       confidence_threshold: float = 0.7) -> Dict[str, List[float]]:
+    from scipy.optimize import minimize, differential_evolution
+
+    # Split into train (80%) and eval (20%), stratified by ground_truth
+    labeled = [i for i in issues if i.ground_truth is not None and i.ground_truth != "Low Confidence"]
+    import random
+    random.seed(42)
+    random.shuffle(labeled)
+
+    by_type: Dict[str, list] = {}
+    for i in labeled:
+        by_type.setdefault(i.ground_truth, []).append(i)
+    train, eval_set = [], []
+    for t, samples in by_type.items():
+        n = len(samples)
+        split = max(1, int(n * 0.8))
+        train.extend(samples[:split])
+        eval_set.extend(samples[split:])
+    random.shuffle(train)
+
+    best_coeffs = deepcopy(ref_coeffs)
+
+    def compute_eval_loss():
+        return compute_loss([i for i in issues if i in eval_set], best_coeffs, confidence_threshold)
+
+    def compute_train_loss_custom(p, tname):
+        c = deepcopy(ref_coeffs)
+        c[tname] = list(p)
+        # L2 regularization: penalize large deviations from reference
+        reg = 0.01 * sum((c[tname][i] - ref_coeffs[tname][i]) ** 2 for i in range(len(c[tname])))
+        return compute_loss(train, c, confidence_threshold) + reg
+
+    best_loss = compute_loss(train, ref_coeffs, confidence_threshold)
+    best_eval_loss = compute_loss([i for i in issues if i in eval_set], ref_coeffs, confidence_threshold)
+    print(f"  Baseline train loss: {best_loss:.4f}, eval loss: {best_eval_loss:.4f}")
+
+    # Phase 1: optimize each type independently with regularization
+    for tname, coeff_list in SCORING_COEFFICIENTS.items():
+        x0 = np.array(best_coeffs[tname], dtype=np.float64)
+        bounds = [(c.min_val, c.max_val) for c in coeff_list]
+
+        result = minimize(
+            compute_train_loss_custom, x0,
+            args=(tname,),
+            method="L-BFGS-B", bounds=bounds,
+            options={"maxiter": 200, "ftol": 1e-6})
+
+        loss_after = compute_train_loss_custom(result.x, tname)
+        if loss_after < best_loss:
+            best_loss = loss_after
+            best_coeffs[tname] = list(result.x)
+            eval_l = compute_eval_loss()
+            print(f"  {tname}: train={loss_after:.4f} eval={eval_l:.4f}")
+
+        # Also try differential evolution
+        de_result = differential_evolution(
+            compute_train_loss_custom, bounds,
+            args=(tname,),
+            maxiter=30, popsize=15, seed=42, polish=True)
+
+        de_loss = compute_train_loss_custom(de_result.x, tname)
+        if de_loss < best_loss:
+            best_loss = de_loss
+            best_coeffs[tname] = list(de_result.x)
+            eval_l = compute_eval_loss()
+            print(f"  {tname}: train={de_loss:.4f} eval={eval_l:.4f} (DE)")
+
+    # Only do joint optimization if it improves eval loss
+    eval_before_joint = compute_eval_loss()
+    print(f"  After per-type: eval loss={eval_before_joint:.4f}")
+
+    # Phase 2: Joint optimization with strong regularization
+    all_params = []
+    all_bounds = []
+    all_type_indices = []
+    for tname, coeff_list in SCORING_COEFFICIENTS.items():
+        idx = len(all_params)
+        all_params.extend(best_coeffs[tname])
+        all_bounds.extend([(c.min_val, c.max_val) for c in coeff_list])
+        all_type_indices.append((tname, idx, len(coeff_list)))
+
+    def joint_loss_reg(p):
+        c = deepcopy(ref_coeffs)
+        reg = 0.0
+        for tname, start, n in all_type_indices:
+            c[tname] = list(p[start:start + n])
+            for i in range(n):
+                reg += 0.005 * (c[tname][i] - ref_coeffs[tname][i]) ** 2
+        return compute_loss(train, c, confidence_threshold) + reg
+
+    result = minimize(joint_loss_reg, np.array(all_params, dtype=np.float64),
+                      method="L-BFGS-B", bounds=all_bounds,
+                      options={"maxiter": 300, "ftol": 1e-6})
+
+    # Evaluate joint on eval set
+    c_joint = deepcopy(ref_coeffs)
+    for tname, start, n in all_type_indices:
+        c_joint[tname] = list(result.x[start:start + n])
+    eval_after_joint = compute_loss([i for i in issues if i in eval_set], c_joint, confidence_threshold)
+
+    if eval_after_joint < eval_before_joint:
+        best_coeffs = c_joint
+        print(f"  Joint optimization improved eval: {eval_before_joint:.4f} -> {eval_after_joint:.4f}")
+    else:
+        print(f"  Joint optimization did not improve eval ({eval_after_joint:.4f} > {eval_before_joint:.4f}), keeping per-type coeffs")
+
+    final_eval = compute_eval_loss()
+    print(f"  Final eval loss: {final_eval:.4f}")
+    return best_coeffs
+
+
 def run_grid_search(issues: List[LabeledIssue],
                     ref_coeffs: Dict[str, List[float]],
                     confidence_threshold: float = 0.7) -> Dict[str, List[float]]:
+    """Fallback if scipy is not available."""
     best_coeffs = deepcopy(ref_coeffs)
     best_loss = compute_loss(issues, ref_coeffs, confidence_threshold)
-    print(f"  Baseline loss: {best_loss:.4f}")
+    print(f"  Baseline loss: {best_loss:.4f} (grid search fallback)")
 
-    # Try optimizing each type independently
-    # For each coefficient, try small deltas
-    # Simple coarse-to-fine: try ±1 step, ±2 steps
     deltas = [-2, -1, 1, 2]
-
     for tname, coeff_list in SCORING_COEFFICIENTS.items():
         trial = deepcopy(best_coeffs)
         for ci, coeff_def in enumerate(coeff_list):
@@ -696,9 +818,9 @@ def run_grid_search(issues: List[LabeledIssue],
         if best_coeffs[tname] != ref_coeffs[tname]:
             print(f"  {tname}: updated (loss={best_loss:.4f})")
 
-    # Fine-tune all types in a second pass with smaller steps
+    # Fine-tune
     deltas = [-1, 1]
-    for _ in range(3):  # 3 passes
+    for _ in range(3):
         for tname, coeff_list in SCORING_COEFFICIENTS.items():
             trial = deepcopy(best_coeffs)
             for ci, coeff_def in enumerate(coeff_list):
@@ -909,8 +1031,12 @@ def main():
         print("\nBaseline evaluation (original coefficients):")
         evaluate(issues, coeffs, confidence_threshold)
 
-        print("\nRunning grid search optimization...")
-        opt_coeffs = run_grid_search(issues, coeffs, confidence_threshold)
+        print("\nRunning scipy optimization...")
+        try:
+            opt_coeffs = run_scipy_optimize(issues, coeffs, confidence_threshold)
+        except ImportError:
+            print("  scipy not available; falling back to grid search")
+            opt_coeffs = run_grid_search(issues, coeffs, confidence_threshold)
 
         print("\nPost-optimization evaluation:")
         evaluate(issues, opt_coeffs, confidence_threshold)
