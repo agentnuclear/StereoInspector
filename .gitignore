@@ -1,0 +1,41 @@
+# Build
+build/
+Build/
+out/
+x64/
+Win32/
+
+# IDE
+.vs/
+*.sdf
+*.opensdf
+*.suo
+*.VC.db
+.vscode/
+.idea/
+*.user
+*.vcxproj.user
+
+# Dependencies
+deps/imgui/
+
+# vcpkg
+vcpkg_installed/
+
+# Logs and output
+*.log
+*.csv
+*.json
+screenshots/
+*.html
+
+# Config
+config.json
+
+# Compiled
+*.exe
+*.pdb
+*.ilk
+*.dll
+*.lib
+*.exp
