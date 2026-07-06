@@ -689,10 +689,22 @@ void AnalyzerPipeline::computeAsymmetry(const cv::Mat& left, const cv::Mat& warp
     if (left.empty() || warpedRight.empty()) return;
     const auto& chk = m_impl->m_config.checks;
 
-    cv::Mat lGray = (!result.leftGray.empty()) ? result.leftGray
-        : (left.channels() == 3 ? (cv::cvtColor(left, lGray, cv::COLOR_BGR2GRAY), lGray) : left);
-    cv::Mat rGray = (!result.rightGray.empty()) ? result.rightGray
-        : (warpedRight.channels() == 3 ? (cv::cvtColor(warpedRight, rGray, cv::COLOR_BGR2GRAY), rGray) : warpedRight);
+    cv::Mat lGray;
+    if (!result.leftGray.empty()) {
+        lGray = result.leftGray;
+    } else if (left.channels() == 3) {
+        cv::cvtColor(left, lGray, cv::COLOR_BGR2GRAY);
+    } else {
+        lGray = left;
+    }
+    cv::Mat rGray;
+    if (!result.rightGray.empty()) {
+        rGray = result.rightGray;
+    } else if (warpedRight.channels() == 3) {
+        cv::cvtColor(warpedRight, rGray, cv::COLOR_BGR2GRAY);
+    } else {
+        rGray = warpedRight;
+    }
 
     // Valid pixels: non-occluded
     cv::Mat valid;

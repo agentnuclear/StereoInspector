@@ -7,10 +7,22 @@ OrbAnalyzer::OrbAnalyzer() : BaseAnalyzer("ORB", true) {
 }
 
 void OrbAnalyzer::analyze(const cv::Mat& leftEye, const cv::Mat& rightEye, AnalysisResult& result) {
-    cv::Mat leftGray = (!result.leftGray.empty()) ? result.leftGray
-        : (leftEye.channels() == 3 ? (cv::cvtColor(leftEye, leftGray, cv::COLOR_BGR2GRAY), leftGray) : leftEye.clone());
-    cv::Mat rightGray = (!result.rightGray.empty()) ? result.rightGray
-        : (rightEye.channels() == 3 ? (cv::cvtColor(rightEye, rightGray, cv::COLOR_BGR2GRAY), rightGray) : rightEye.clone());
+    cv::Mat leftGray;
+    if (!result.leftGray.empty()) {
+        leftGray = result.leftGray;
+    } else if (leftEye.channels() == 3) {
+        cv::cvtColor(leftEye, leftGray, cv::COLOR_BGR2GRAY);
+    } else {
+        leftGray = leftEye.clone();
+    }
+    cv::Mat rightGray;
+    if (!result.rightGray.empty()) {
+        rightGray = result.rightGray;
+    } else if (rightEye.channels() == 3) {
+        cv::cvtColor(rightEye, rightGray, cv::COLOR_BGR2GRAY);
+    } else {
+        rightGray = rightEye.clone();
+    }
 
     std::vector<cv::KeyPoint> kpL, kpR;
     cv::Mat descL, descR;
