@@ -1,5 +1,7 @@
 # Stereo Inspector — Developer Documentation
 
+> **Classifier calibration requires real VR capture data.** The synthetic data pipeline (generator + optimizer) provides approximate coefficients, but definitive calibration — where "87% confidence" means P(correct) ≈ 0.87 — requires capturing real VR content with ground truth labels. See the [Classifier Calibration](#classifier-calibration--real-vr-capture) section.
+
 ## Architecture Overview
 
 ```
@@ -213,6 +215,15 @@ enum class StereoStatus { SAFE, WARNING, DESYNC, UNKNOWN };
 **`AnalysisThresholds`** has 14 pairs of `Warning`/`Fail` thresholds (one per metric).
 Each pair defines two boundaries used in health score computation.
 
+**Detection thresholds** (added post-audit):
+- `diffThreshold` (default 40) — grayscale residual threshold for issue detection mask
+- `minIssueArea` (default 200) — minimum pixel area for connected components
+- `minIssueConfidence` (default 0.50) — minimum classifier confidence to retain an issue
+
+**`CheckToggles`** (added Week 2): 32 per-check enable/disable booleans organized
+by category (Image Analysis, Correspondence, Asymmetry, Issue Detection, Scoring).
+Serialized in config JSON.
+
 **`LogConfig`** controls output:
 - File paths for CSV, JSON, screenshots, report.
 - `autoScreenshotOnFail` / `autoScreenshotOnWarning` — conditional capture.
@@ -267,29 +278,37 @@ screen capture without a mirror driver.
 
 **`analyzeFrame(left, right)` — Correspondence-First Pipeline**:
 
+0. **FeatureCache update**: Update frame number for cache invalidation.
 1. **Stereo Correspondence**: `StereoCorrespondence::compute(left, right)` computes
    dense disparity (SGBM default), warps right eye to left coordinate system,
    generates occlusion mask.
-2. **Aligned Analysis**: All registered analyzers run on `(left, warpedRight)` —
+2. **Grayscale Precompute**: `leftGray` + `rightGray` computed once, stored
+   in `AnalysisResult`. All downstream analyzers use cached grayscale.
+3. **Aligned Analysis**: All registered analyzers run on `(left, warpedRight)` —
    the warped/aligned images. This eliminates false positives from binocular
    parallax (differences that are expected stereo depth).
-3. **Disparity Metrics**: Statistics on the disparity map (mean, std, range,
+4. **Disparity Metrics**: Statistics on the disparity map (mean, std, range,
    invalid ratio, smoothness, vertical asymmetry).
-4. **Match Quality**: Correspondence confidence, inlier ratio.
-5. **Asymmetry Metrics**: Lighting, bloom, shadow, texture, chromatic, contrast,
+5. **Match Quality**: Correspondence confidence, inlier ratio.
+6. **Asymmetry Metrics**: Lighting, bloom, shadow, texture, chromatic, contrast,
    post-process asymmetry computed from aligned images.
-6. **Issue Detection**:
+7. **Scene Confidence**: Per-quadrant evaluation (4 quadrants, best-2 average).
+   Uses FAST-10 corner detection. Threshold configurable (default 0.15).
+8. **Health Score**: Config-driven thresholds from `AnalysisThresholds`.
+9. **Issue Detection**:
    a. Connected components on aligned residual diff map (`absdiff(left, warpedRight)`),
-      thresholded at 25, minimum 50 pixels.
-   b. **IssueClassifier::classify()** extracts 20 features from each region
+      thresholded at configurable `diffThreshold` (default 40), minimum area
+      configurable `minIssueArea` (default 200 pixels).
+   b. **IssueClassifier::classify()** extracts 22 features from each region
       (brightness, contrast, edge ratio, texture variance, gradient, histogram,
       color presence, bloom ratio, shadow ratio, content density, position,
-      aspect ratio, size), scores all 22 issue types, picks the highest with
-      confidence ≥ 0.70 (otherwise LowConfidence).
+      aspect ratio, size), scores all 20 issue types, picks the highest with
+      confidence ≥ `minIssueConfidence` (default 0.50, otherwise LowConfidence).
    c. **RegionMerger::merge()** clusters overlapping regions via IoU +
       centroid-distance check; highest-confidence classification wins.
    d. **RegionMerger::filterInvalid()** removes lens-boundary false positives,
       vignette artifacts, and tiny/small regions.
+10. **Baseline Comparison**: Compare metrics against captured baseline.
 
 **Scene Confidence** (`computeSceneConfidence()`):
 
@@ -509,15 +528,14 @@ fixed foveation.
 ### `IssueClassifier.h / IssueClassifier.cpp`
 
 Replaces the old heuristic region classification with an intelligent multi-feature
-scoring system supporting 22 issue types:
+scoring system supporting 20 issue types:
 
 ```
-LightingDifference, ShadowDifference, BrightnessMismatch, ContrastMismatch,
-ColorFringing, TextureMismatch, EdgeMisalignment, GeometryMismatch,
-BlurMismatch, GradientDifference, HistogramMismatch, FeatureMismatch,
-OcclusionDifference, ParallaxMismatch, WindowViolation, LensBoundary,
-VignetteDifference, TemporalFlicker, TemporalInstability, DisparityError,
-LowConfidence
+LightingDifference, ShadowDifference, BloomDifference, ReflectionDifference,
+TextureDifference, MaterialDifference, TransparencyDifference, EdgeDifference,
+MissingGeometry, ExtraGeometry, MissingObject, MissingParticle, MissingUI,
+TextDifference, StereoOffset, DepthDisparityError, OcclusionDifference,
+PostProcessDifference, TemporalDifference, LensBoundary
 ```
 
 **`extractFeatures(leftGray, rightGray, box)`** — extracts 20 features per region:
@@ -542,18 +560,18 @@ LowConfidence
 | nearBorder/nearCenter | Region position flags |
 | regionSize, aspectRatio, posX/Y | Geometric properties |
 
-**`classify(features)`** — scores all 22 types using dedicated scoring functions:
+**`classify(features)`** — scores all 20 types using dedicated scoring functions:
 
 ```cpp
-float scoreLightingDifference(const RegionFeatures& f);
-float scoreTextureMismatch(const RegionFeatures& f);
+float scoreLighting(const RegionFeatures& f);
+float scoreShadow(const RegionFeatures& f);
 // ... one per type
 ```
 
 Each scorer returns 0–1 confidence. The type with the highest confidence is
-selected. If no score exceeds 0.70, the region is classified as `LowConfidence`
-(with the best score clamped at 0.55). All scores > 0.10 are added to the
-`alternatives` vector for explainability.
+selected. If no score exceeds `minIssueConfidence` (configurable, default 0.50),
+the region is classified as `LowConfidence` (with the best score clamped at 0.55).
+All scores > 0.10 are added to the `alternatives` vector for explainability.
 
 **`buildReasoningText(type, features)`** — generates human-readable explanation:
 ```
@@ -895,6 +913,161 @@ Algorithm:
 
 ---
 
+## DataCollector Module
+
+### `DataCollector.h / DataCollector.cpp`
+
+A headless data collection mode activated via `--collect PATH` on the command line.
+Used to build ground-truth datasets for classifier optimization.
+
+**Workflow**:
+1. `StereoInspector.exe --collect D:\dataset` runs the full analysis pipeline
+   without the GUI overlay.
+2. For each frame, saves:
+   - `frame_NNNN_left.png` / `frame_NNNN_right.png` — raw eye images
+   - `dataset.jsonl` — one JSON object per frame containing:
+     - frame number, left/right filenames
+     - all metric outputs (SSIM, pixDiff, disparity stats, etc.)
+     - all detected issues with bounding boxes, types, confidences, evidence (22 features)
+     - scene confidence and alternatives list
+
+**Labeling**: Users add a `"groundTruth"` field to each issue in `dataset.jsonl`
+with the correct `IssueType` string. The `optimize_classifier.py` script reads
+this field to tune coefficients.
+
+### Classes
+
+`CollectionFrame` — stores one frame's worth of data:
+- `frameNumber`, `leftPath`, `rightPath`
+- `metrics` — all scalar analysis metrics
+- `issues` — vector of detected issues with evidence and type/confidence
+- `sceneConfidence`, `healthScore`, `stereoStatus`
+
+`DataCollector` — singleton managing output:
+- `beginCollection(path)` — opens JSONL file, creates output directory
+- `collectFrame(frame, result)` — saves PNGs, appends JSONL entry
+- `endCollection()` — closes files, prints summary
+
+---
+
+## Tools
+
+The `tools/` directory contains utilities for classifier calibration.
+
+### `synthetic_dataset_gen.cpp`
+
+Standalone tool (links only OpenCV + nlohmann_json) that generates labeled synthetic
+stereo defect datasets from any source image.
+
+**Build**: `cmake --build build --config Release --target gen_synthetic`
+
+**Usage**:
+```
+gen_synthetic testpattern D:\dataset --samples 200 --size 1920x1080
+gen_synthetic C:\photo.jpg D:\dataset --samples 100
+```
+
+**Defect types covered** (18 of 20 — Temporal and Depth/Disparity not simulable
+from single frame):
+- Lighting, Shadow, Bloom, Reflection, Texture, Material, Transparency, Edge
+- Missing/Extra Geometry, Missing Object/Particle/UI
+- Text, Stereo Offset, Occlusion, Post-Process, Lens Boundary
+
+**Evidence computation**: For each injected defect, extracts the same 22 features
+as the C++ `extractEvidence()` function:
+- `brightnessDiff`, `contrastDiff`, `colorDiff` — per-channel mean/std deltas
+- `edgeSimilarity` — Canny Jaccard index within region
+- `edgeRatio` — edge pixel proportion delta
+- `textureSimilarity` — Laplacian variance ratio
+- `gradientConsistency` — Sobel gradient orientation correlation
+- `histogramSimilarity` — 32-bin HISTCMP_CORREL
+- `meanDiff`, `bloomRatio`, `shadowRatio` — diff and pixel proportion deltas
+- `leftContentDensity`, `rightContentDensity` — content density per eye
+- `regionSize`, `regionAspectRatio`, `regionPosX/Y`
+- `nearBorder`, `nearCenter`, `hasColor`
+- `featureMatchDensity`, `disparityConsistency`, `temporalStability` (set to
+  defaults — not computable from single frame)
+
+**NaN safety**: All computations guarded against zero-division and NaN;
+post-processing clamps any remaining NaN/Inf values to 0.
+
+### `optimize_classifier.py`
+
+Python 3 script that ports all 20 scoring functions from `IssueClassifier.cpp`
+and optimizes coefficients against labeled data.
+
+**Dependencies**: `numpy`, `scipy`
+
+**Usage**: `python tools/optimize_classifier.py dataset.jsonl`
+
+**Pipeline**:
+1. Load JSONL dataset (reads `issues` arrays from each frame entry)
+2. Filter labeled issues (those with `groundTruth` field)
+3. Stratified train/eval split (80/20 by type)
+4. Per-type optimization:
+   - L-BFGS-B (local) with L2 regularization against reference coefficients
+   - Differential evolution (global) for broader search
+   - Both gated by eval loss improvement
+5. Joint optimization (all types simultaneously) — accepted only if eval loss improves
+6. Platt scaling fit: `P(y=1|score) = 1/(1+exp(a*score+b))` per type
+7. Generate `*_optimized_coeffs.h` with optimized coefficients + Platt params
+
+**Output header format**:
+```cpp
+struct OptimizedCoefficients {
+    static constexpr float kLighting_Difference[] = { 2.005f, 0.621f, ... };
+    // ...
+    static float applyPlattScaling(int typeIndex, float rawScore);
+};
+```
+
+### `best_optimized_coeffs.h`
+
+Best-known optimized coefficients from 210-sample multi-source dataset
+(7 Windows lock screen images × 30 samples each). Achieves 4× loss reduction
+(12.3 → 3.2) but requires real VR capture data for definitive calibration.
+
+---
+
+## Classifier Calibration & Real VR Capture
+
+> **⚠️ This is the single most impactful remaining work.** The classifier's confidence
+> percentages are heuristic until calibrated against real VR content.
+
+**Why synthetic data is insufficient**:
+- Shadow, Transparency, and Occlusion defects produce very similar feature vectors
+  when applied at pixel level (all darken a region)
+- The key discriminating features — `temporalStability` and `disparityConsistency` —
+  require multi-frame or real depth data
+- Synthetic defects don't reproduce real VR artifacts (lens distortion, god rays,
+  foveation asymmetry, fresnel ringing)
+
+**Required workflow**:
+1. Run VR application with known stereo issues
+2. Capture: `StereoInspector.exe --collect D:\real_dataset`
+3. Label: add `"groundTruth"` field to each issue in `dataset.jsonl`
+4. Optimize: `python tools/optimize_classifier.py D:\real_dataset\dataset.jsonl`
+5. Integrate the generated `*_optimized_coeffs.h` into `IssueClassifier.cpp`
+
+**Expected results with real data**:
+- Top-1 accuracy: from ~36% (synthetic) to 75%+ (real)
+- Platt-calibrated confidences: "87% confidence" means P(correct) ≈ 0.87
+- Per-type thresholds replace the single global `minIssueConfidence`
+
+---
+
+## Known Limitations
+
+1. **Classifier uncalibrated** — see above. All confidence percentages are heuristic.
+2. **Single monitor only** — captures primary monitor (adapter 0, output 0).
+3. **No HDR support** — uses BGRA8 format; HDR surfaces may fail.
+4. **No GPU analysis** — All analysis runs on CPU.
+5. **Logging is append-only** — no purging or rotation.
+6. **Report screenshots are absolute paths** — not portable across machines.
+7. **FrameQueue removed** — single-frame buffer; no queuing for backlog resilience.
+
+---
+
 ## CMake Build System
 
 ### `CMakeLists.txt`
@@ -1024,18 +1197,6 @@ analyzer.registerAnalyzer(std::make_unique<MyAnalyzer>());
 - **File write failures**: Logged but non-fatal.
 - **Tesseract init failure**: Disables OCR silently (unless compiled without it).
 - **Window creation failure**: Application exits with error code.
-
----
-
-## Known Limitations
-
-1. **Single monitor only**: Captures the primary monitor (adapter 0, output 0).
-   Multi-monitor support would require cycling through outputs.
-2. **No HDR support**: Uses BGRA8 format; HDR surfaces may fail to capture.
-3. **No GPU analysis**: All analysis runs on CPU. GPU-accelerated OpenCV (CUDA/OpenCL)
-   is not enabled.
-4. **Logging is append-only**: No purging or rotation of log files.
-5. **Report screenshots are absolute paths**: Not portable across machines.
 
 ---
 

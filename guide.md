@@ -157,30 +157,31 @@ The app uses an **intelligent multi-feature classifier** to detect and classify
 rendering issues:
 
 1. `absdiff(left, warpedRight)` generates a grayscale residual.
-2. Threshold at 25 → binary mask → morphological cleanup.
-3. `connectedComponentsWithStats` finds contiguous regions ≥ 50 pixels.
-4. **IssueClassifier** extracts 20 features per region (brightness, contrast,
+2. Threshold at `diffThreshold` (configurable, default 40) → binary mask → morphological cleanup.
+3. `connectedComponentsWithStats` finds contiguous regions ≥ `minIssueArea` (configurable, default 200 pixels).
+4. **IssueClassifier** extracts 22 features per region (brightness, contrast,
    edge ratio, texture variance, gradient, histogram, color, bloom, shadow,
-   content density, position, size) and scores all 22 issue types.
-5. The type with the highest confidence is selected (minimum 0.70 threshold,
-   otherwise **LowConfidence**).
+   content density, position, size) and scores all 20 issue types.
+5. The type with the highest confidence is selected (minimum `minIssueConfidence`
+   threshold, configurable, default 0.50, otherwise **LowConfidence**).
 6. **RegionMerger** clusters overlapping regions via IoU/centroid-distance
    and removes lens-boundary, vignette, and tiny false positives.
 
-**Issue types** (22 total):
+**Issue types** (20 total):
 
 | Category | Types |
 |----------|-------|
-| Lighting | LightingDifference, ShadowDifference, BrightnessMismatch, ContrastMismatch |
-| Color | ColorFringing |
-| Texture | TextureMismatch, EdgeMisalignment, GeometryMismatch, BlurMismatch, GradientDifference |
-| Histogram | HistogramMismatch |
-| Feature | FeatureMismatch |
-| Occlusion | OcclusionDifference, ParallaxMismatch, WindowViolation |
-| Lens | LensBoundary, VignetteDifference |
-| Temporal | TemporalFlicker, TemporalInstability |
-| Disparity | DisparityError |
-| Low Confidence | LowConfidence (when no type scores ≥ 0.70) |
+| Lighting | LightingDifference, ShadowDifference, BloomDifference, ReflectionDifference |
+| Texture | TextureDifference, MaterialDifference, TransparencyDifference, EdgeDifference |
+| Geometry | MissingGeometry, ExtraGeometry, MissingObject, MissingParticle, MissingUI |
+| Text | TextDifference |
+| Offset | StereoOffset |
+| Occlusion | OcclusionDifference |
+| Post-Process | PostProcessDifference |
+| Lens | LensBoundary |
+| Temporal | TemporalDifference |
+| Disparity | DepthDisparityError |
+| Low Confidence | LowConfidence (when no type scores ≥ threshold) |
 
 **Issues panel** shows each region with its type color, confidence percentage,
 and pixel area. Hover for top 3 alternatives. Click to reveal full reasoning
@@ -274,13 +275,78 @@ The **Live Graphs** panel shows 8 sparkline trend graphs covering the last
 
 ---
 
+## Headless Data Collection (`--collect`)
+
+Run without the GUI overlay to build ground-truth datasets:
+
+```powershell
+StereoInspector.exe --collect D:\dataset
+```
+
+Outputs per frame:
+- `frame_NNNN_left.png` / `frame_NNNN_right.png` — raw eye images
+- `dataset.jsonl` — one JSON object per frame with all metrics, detected issues,
+  evidence vectors (22 features), scene confidence, and alternatives
+
+**To label data for classifier tuning**, add `"groundTruth"` field to each issue:
+```json
+{"type": "Bloom Difference", "groundTruth": "Bloom Difference", ...}
+```
+
+---
+
+## Synthetic Data Generator
+
+The `gen_synthetic` tool creates labeled stereo defect datasets from any image:
+
+```powershell
+# Build
+cmake --build build --config Release --target gen_synthetic
+
+# Generate 200 samples from test pattern
+gen_synthetic testpattern D:\dataset --samples 200 --size 1920x1080
+
+# Generate from a photo
+gen_synthetic C:\photo.jpg D:\dataset --samples 100
+```
+
+Each sample: left eye (shifted), right eye (shifted + defect injected at random
+location). Output: PNGs + `dataset.jsonl` with perfect `groundTruth` labels.
+
+**18 defect types**: Lighting, Shadow, Bloom, Reflection, Texture, Material,
+Transparency, Edge, Missing/Extra Geometry, Missing Object/Particle/UI, Text,
+Stereo Offset, Occlusion, Post-Process, Lens Boundary.
+
+---
+
+## Classifier Optimization
+
+The `optimize_classifier.py` script tunes classifier coefficients against labeled data:
+
+```powershell
+python tools/optimize_classifier.py D:\dataset\dataset.jsonl
+```
+
+Requires: Python 3, numpy, scipy. Output: `*_optimized_coeffs.h` with tuned
+coefficients and per-type Platt scaling parameters.
+
+> **⚠️ Important**: The classifier currently uses synthetic-data coefficients.
+> For trustworthy confidence percentages, capture data from **real VR content**
+> and re-run optimization. See `tools/best_optimized_coeffs.h` for the best
+> available coefficients.
+
+---
+
 ## Configuring Thresholds
 
 Edit `config.json` (auto-created on first launch):
 
 ```json
 {
-    "sceneConfidenceThreshold": 0.35,
+    "sceneConfidenceThreshold": 0.15,
+    "diffThreshold": 40,
+    "minIssueArea": 200,
+    "minIssueConfidence": 0.50,
     "thresholds": {
         "ssimWarning": 0.85,
         "ssimFail": 0.70,
@@ -289,8 +355,15 @@ Edit `config.json` (auto-created on first launch):
 }
 ```
 
-The `sceneConfidenceThreshold` controls how conservative the scene evaluation
-is (range 0–1, higher = more conservative, default 0.35).
+**Detection thresholds:**
+| Field | Default | Description |
+|-------|---------|-------------|
+| `diffThreshold` | 40 | Grayscale intensity threshold for residual mask (higher = fewer detections) |
+| `minIssueArea` | 200 | Minimum connected-component pixel area |
+| `minIssueConfidence` | 0.50 | Minimum classifier confidence to retain an issue (was 0.70) |
+| `sceneConfidenceThreshold` | 0.15 | Was 0.35 — controls how conservative scene evaluation is. Lower = more tolerant of dark/featureless scenes. |
+
+All thresholds are reloaded at app start from `config.json`.
 
 ---
 
@@ -345,7 +418,10 @@ Analysis. All computed on aligned (warped) images.
 - **Target FPS**: Adjust `targetFps` in `config.json`.
 - **Scene confidence**: Lower `sceneConfidenceThreshold` (0.2–0.3) for more
   aggressive analysis during dark scenes.
-- **Disable analyzers**: Remove from `main.cpp` to save cycles.
+- **Capture FPS**: Displayed in the overlay — shows actual capture rate from DXGI.
+  `captureFps` tracks the rate at which frames are acquired (independent of analysis FPS).
+- **Disable analyzers**: Use the **Checks** tab in the Hub window to toggle
+  individual analyzers on/off without recompilation (32 CheckToggles).
 - **OCR is disabled by default**: Enable only if needed.
 
 ---
@@ -363,6 +439,16 @@ Analysis. All computed on aligned (warped) images.
 
 ---
 
+## Tools Reference
+
+| Tool | Location | Purpose |
+|------|----------|---------|
+| `gen_synthetic` | Built from `tools/synthetic_dataset_gen.cpp` | Generate labeled synthetic stereo defect datasets |
+| `optimize_classifier.py` | `tools/optimize_classifier.py` | Tune classifier coefficients against labeled data |
+| `best_optimized_coeffs.h` | `tools/best_optimized_coeffs.h` | Best available optimized coefficients |
+
+---
+
 ## Data Files Reference
 
 | File | Purpose |
@@ -374,3 +460,4 @@ Analysis. All computed on aligned (warped) images.
 | `stereo_inspector_report.html` | Analysis report |
 | `stereo_inspector_layout.ini` | ImGui panel layout |
 | `screenshots/*.png` | Auto-captured FAIL frames |
+| `dataset.jsonl` | Data collection output (from `--collect`) |
