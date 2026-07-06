@@ -142,7 +142,10 @@ nlohmann::json AppConfig::toJson() const {
             {"disparityStabilityFail", thresholds.disparityStabilityFail},
             {"matchQualityWarning", thresholds.matchQualityWarning},
             {"passThreshold", thresholds.passThreshold},
-            {"warningThreshold", thresholds.warningThreshold}
+            {"warningThreshold", thresholds.warningThreshold},
+            {"diffThreshold", thresholds.diffThreshold},
+            {"minIssueArea", thresholds.minIssueArea},
+            {"minIssueConfidence", thresholds.minIssueConfidence}
         }},
         {"logging", {
             {"csvPath", logging.csvPath},
@@ -228,6 +231,9 @@ AppConfig AppConfig::fromJson(const nlohmann::json& j) {
         th.matchQualityWarning = t.value("matchQualityWarning", th.matchQualityWarning);
         th.passThreshold = t.value("passThreshold", th.passThreshold);
         th.warningThreshold = t.value("warningThreshold", th.warningThreshold);
+        th.diffThreshold = t.value("diffThreshold", th.diffThreshold);
+        th.minIssueArea = t.value("minIssueArea", th.minIssueArea);
+        th.minIssueConfidence = t.value("minIssueConfidence", th.minIssueConfidence);
     }
     if (j.contains("logging")) {
         const auto& l = j["logging"];

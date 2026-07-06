@@ -64,6 +64,11 @@ struct AnalysisThresholds {
     double matchQualityWarning = 0.30;
     double passThreshold = 80.0;
     double warningThreshold = 50.0;
+
+    // Issue detection thresholds
+    int diffThreshold = 40;        // pixel diff threshold (0-255) — higher = fewer false positives
+    int minIssueArea = 200;        // minimum connected-component area in pixels
+    double minIssueConfidence = 0.50;  // minimum classifier confidence to report
 };
 
 struct LogConfig {

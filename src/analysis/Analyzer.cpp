@@ -912,7 +912,7 @@ void AnalyzerPipeline::detectIssues(AnalysisResult& result,
     result.residualDiffMap = residualMap.clone();
 
     cv::Mat mask;
-    cv::threshold(residualMap, mask, 25, 255, cv::THRESH_BINARY);
+    cv::threshold(residualMap, mask, m_impl->m_config.thresholds.diffThreshold, 255, cv::THRESH_BINARY);
 
     // Remove occlusion areas from mask
     if (!occlusionMask.empty()) {
@@ -934,7 +934,7 @@ void AnalyzerPipeline::detectIssues(AnalysisResult& result,
     cv::Mat labels, stats, centroids;
     int nComponents = cv::connectedComponentsWithStats(mask, labels, stats, centroids, 8);
 
-    const int minArea = 50;
+    const int minArea = m_impl->m_config.thresholds.minIssueArea;
     std::vector<DetectedIssue> rawIssues;
     for (int i = 1; i < nComponents; i++) {
         int area = stats.at<int>(i, cv::CC_STAT_AREA);
@@ -1026,6 +1026,10 @@ void AnalyzerPipeline::detectIssues(AnalysisResult& result,
             features.edgeRatio = totalPixD > 0 ? (float)(std::abs(countL - countR) / totalPixD) : 0.0f;
 
             classified = m_classifier.classify(features);
+            // Skip low-confidence classifications to reduce false positives
+            if (classified.confidence < m_impl->m_config.thresholds.minIssueConfidence) {
+                continue;
+            }
         } else {
             // No classifier: use a generic classification
             classified.type = IssueType::LowConfidence;
