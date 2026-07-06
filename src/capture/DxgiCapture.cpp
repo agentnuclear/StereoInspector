@@ -236,8 +236,8 @@ void DxgiCapture::captureLoop(LatestFrameBuffer& frameBuffer) {
         double elapsed = std::chrono::duration<double>(now - lastTime).count();
         if (elapsed >= 1.0) {
             if (frameCount > 0) {
-                double fps = frameCount / elapsed;
-                spdlog::debug("Capture FPS: {:.1f}", fps);
+                m_captureFps.store(frameCount / elapsed);
+                spdlog::debug("Capture FPS: {:.1f}", m_captureFps.load());
             }
             frameCount = 0;
             lastTime = now;

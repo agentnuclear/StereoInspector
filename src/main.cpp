@@ -308,7 +308,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     auto lastFrameTime = std::chrono::steady_clock::now();
     int frameCount = 0;
     double currentFps = 0.0;
-    double captureFps = 0.0;
 
     spdlog::info("Stereo Inspector is running");
 
@@ -357,7 +356,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
 
             FrameTime ft = analyzer->getFrameTime();
             ft.fps = currentFps;
-            ft.captureFps = captureFps;
+            ft.captureFps = capture.captureFps();
         }
 
         double targetMs = config.targetFps > 0 ? (1000.0 / config.targetFps) : 0;

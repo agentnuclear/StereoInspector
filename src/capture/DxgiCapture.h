@@ -24,6 +24,7 @@ public:
     int height() const;
     StereoLayout currentLayout() const;
     void resetDetection();
+    double captureFps() const { return m_captureFps.load(); }
 
 private:
     void captureLoop(LatestFrameBuffer& frameBuffer);
@@ -44,6 +45,8 @@ private:
     ComPtr<IDXGIOutput1> m_output1;
     int m_width = 0;
     int m_height = 0;
+
+    std::atomic<double> m_captureFps{0.0};
 
     StereoDetector m_stereoDetector;
     StereoDetectionResult m_lastDetection;

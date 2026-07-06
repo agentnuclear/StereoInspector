@@ -104,6 +104,21 @@ if(Tesseract_FOUND)
     target_compile_definitions(StereoInspector PRIVATE HAS_TESSERACT=1)
     target_include_directories(StereoInspector PRIVATE ${Tesseract_INCLUDE_DIRS})
     target_link_libraries(StereoInspector PRIVATE ${Tesseract_LIBRARIES})
+    if(WIN32 AND MSVC)
+        # Copy Tesseract DLLs to output directory
+        foreach(_tess_lib ${Tesseract_LIBRARIES})
+            get_filename_component(_tess_lib_dir "${_tess_lib}" DIRECTORY)
+            file(GLOB _tess_dlls "${_tess_lib_dir}/*.dll"
+                                "${_tess_lib_dir}/../bin/*.dll")
+            foreach(_tess_dll ${_tess_dlls})
+                add_custom_command(TARGET StereoInspector POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${_tess_dll}"
+                        "$<TARGET_FILE_DIR:StereoInspector>/"
+                )
+            endforeach()
+        endforeach()
+    endif()
 endif()
 
 target_link_libraries(StereoInspector PRIVATE
