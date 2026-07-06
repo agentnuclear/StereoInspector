@@ -412,6 +412,7 @@ void AnalyzerPipeline::processLoop(LatestFrameBuffer& frameBuffer) {
             continue;
         }
 
+
         // Check for pending baseline capture — analyze pending frames fully
         bool justCaptured = false;
         bool captureRefused = false;
@@ -564,7 +565,7 @@ AnalysisResult AnalyzerPipeline::analyzeFrame(const cv::Mat& left, const cv::Mat
         corr = m_correspondence.compute(left, right);
     }
 
-    // Step 2: Pre-compute grayscale once for all analyzers (saves ~26 cvtColor calls per frame)
+    // Step 2: Pre-compute grayscale once for all analyzers
     const cv::Mat& alignedRight = corr.success ? corr.warpedRight : right;
     if (left.channels() == 3) {
         cv::cvtColor(left, result.leftGray, cv::COLOR_BGR2GRAY);

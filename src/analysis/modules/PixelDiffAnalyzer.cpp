@@ -7,7 +7,9 @@ void PixelDiffAnalyzer::analyze(const cv::Mat& leftEye, const cv::Mat& rightEye,
     cv::Mat diff;
     cv::absdiff(leftEye, rightEye, diff);
 
-    cv::Mat gray = diff.channels() == 3 ? (cv::cvtColor(diff, gray, cv::COLOR_BGR2GRAY), gray) : diff;
+    cv::Mat gray;
+    if (diff.channels() == 3) cv::cvtColor(diff, gray, cv::COLOR_BGR2GRAY);
+    else gray = diff;
 
     // Weight by disparity valid mask: only count pixels with valid correspondence
     cv::Mat validMask;
