@@ -151,4 +151,12 @@ target_compile_definitions(StereoInspector PRIVATE
     WIN32_LEAN_AND_MEAN
 )
 
+# Synthetic dataset generator (standalone, no GUI/DXGI dependencies)
+add_executable(gen_synthetic tools/synthetic_dataset_gen.cpp)
+target_compile_features(gen_synthetic PUBLIC cxx_std_20)
+target_include_directories(gen_synthetic PRIVATE ${OpenCV_INCLUDE_DIRS} ${nlohmann_json_INCLUDE_DIRS})
+target_link_libraries(gen_synthetic PRIVATE ${OpenCV_LIBS} nlohmann_json::nlohmann_json)
+target_compile_options(gen_synthetic PRIVATE /W4 /utf-8)
+target_compile_definitions(gen_synthetic PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
+
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
