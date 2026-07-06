@@ -118,6 +118,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
         analyzer.clearBaseline();
         spdlog::info("Baseline cleared via UI");
     });
+    overlay.setConfigCallback([&](const CheckToggles& toggles) {
+        analyzer.setCheckToggles(toggles);
+        spdlog::debug("Check toggles updated");
+    });
+    overlay.setGetConfigCallback([&]() {
+        return analyzer.getConfig().checks;
+    });
 
     int hotkeyId = 1;
     inputManager.registerHotkey(hotkeyId++, VK_F1, [&]() {
@@ -242,6 +249,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
         inputManager.processMessages();
 
         if (g_screenshotTrigger.exchange(0)) {
+            auto frame = frameBuffer.load();
+            if (frame && !frame->frame.empty()) {
+                auto result = analyzer.getLatestResult();
+                logger.captureScreenshot(frame->frame, result);
+            }
+        }
+
+        if (g_recording && (frameCount % 30 == 0)) {
             auto frame = frameBuffer.load();
             if (frame && !frame->frame.empty()) {
                 auto result = analyzer.getLatestResult();

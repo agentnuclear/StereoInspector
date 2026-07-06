@@ -2,12 +2,89 @@
 #include <fstream>
 #include <spdlog/spdlog.h>
 
+nlohmann::json CheckToggles::toJson() const {
+    return {
+        {"correspondence", correspondence},
+        {"ssim", ssim},
+        {"pixelDiff", pixelDiff},
+        {"histogram", histogram},
+        {"edge", edge},
+        {"orb", orb},
+        {"opticalFlow", opticalFlow},
+        {"blur", blur},
+        {"brightness", brightness},
+        {"contrast", contrast},
+        {"bloom", bloom},
+        {"shadow", shadow},
+        {"stereoOffset", stereoOffset},
+        {"ocr", ocr},
+        {"disparityMetrics", disparityMetrics},
+        {"matchQuality", matchQuality},
+        {"asymmetry", asymmetry},
+        {"lightingAsym", lightingAsym},
+        {"bloomAsym", bloomAsym},
+        {"shadowAsym", shadowAsym},
+        {"postProcessAsym", postProcessAsym},
+        {"textureAsym", textureAsym},
+        {"blurAsym", blurAsym},
+        {"chromaticAsym", chromaticAsym},
+        {"contrastAsym", contrastAsym},
+        {"geometryMissing", geometryMissing},
+        {"detectIssues", detectIssues},
+        {"issueClassification", issueClassification},
+        {"issueMerging", issueMerging},
+        {"temporal", temporal},
+        {"sceneConfidence", sceneConfidence},
+        {"healthScore", healthScore},
+        {"baselineComparison", baselineComparison}
+    };
+}
+
+CheckToggles CheckToggles::fromJson(const nlohmann::json& j) {
+    CheckToggles c;
+    c.correspondence = j.value("correspondence", c.correspondence);
+    c.ssim = j.value("ssim", c.ssim);
+    c.pixelDiff = j.value("pixelDiff", c.pixelDiff);
+    c.histogram = j.value("histogram", c.histogram);
+    c.edge = j.value("edge", c.edge);
+    c.orb = j.value("orb", c.orb);
+    c.opticalFlow = j.value("opticalFlow", c.opticalFlow);
+    c.blur = j.value("blur", c.blur);
+    c.brightness = j.value("brightness", c.brightness);
+    c.contrast = j.value("contrast", c.contrast);
+    c.bloom = j.value("bloom", c.bloom);
+    c.shadow = j.value("shadow", c.shadow);
+    c.stereoOffset = j.value("stereoOffset", c.stereoOffset);
+    c.ocr = j.value("ocr", c.ocr);
+    c.disparityMetrics = j.value("disparityMetrics", c.disparityMetrics);
+    c.matchQuality = j.value("matchQuality", c.matchQuality);
+    c.asymmetry = j.value("asymmetry", c.asymmetry);
+    c.lightingAsym = j.value("lightingAsym", c.lightingAsym);
+    c.bloomAsym = j.value("bloomAsym", c.bloomAsym);
+    c.shadowAsym = j.value("shadowAsym", c.shadowAsym);
+    c.postProcessAsym = j.value("postProcessAsym", c.postProcessAsym);
+    c.textureAsym = j.value("textureAsym", c.textureAsym);
+    c.blurAsym = j.value("blurAsym", c.blurAsym);
+    c.chromaticAsym = j.value("chromaticAsym", c.chromaticAsym);
+    c.contrastAsym = j.value("contrastAsym", c.contrastAsym);
+    c.geometryMissing = j.value("geometryMissing", c.geometryMissing);
+    c.detectIssues = j.value("detectIssues", c.detectIssues);
+    c.issueClassification = j.value("issueClassification", c.issueClassification);
+    c.issueMerging = j.value("issueMerging", c.issueMerging);
+    c.temporal = j.value("temporal", c.temporal);
+    c.sceneConfidence = j.value("sceneConfidence", c.sceneConfidence);
+    c.healthScore = j.value("healthScore", c.healthScore);
+    c.baselineComparison = j.value("baselineComparison", c.baselineComparison);
+    return c;
+}
+
 AppConfig AppConfig::defaults() {
     return AppConfig{};
 }
 
 nlohmann::json AppConfig::toJson() const {
     return {
+        {"checks", checks.toJson()},
         {"stereoRegion", {
             {"x", stereoRegion.x},
             {"y", stereoRegion.y},
@@ -113,6 +190,9 @@ AppConfig AppConfig::fromJson(const nlohmann::json& j) {
         lg.autoScreenshotOnWarning = l.value("autoScreenshotOnWarning", lg.autoScreenshotOnWarning);
         lg.logTimestamps = l.value("logTimestamps", lg.logTimestamps);
         lg.maxScreenshots = l.value("maxScreenshots", lg.maxScreenshots);
+    }
+    if (j.contains("checks")) {
+        cfg.checks = CheckToggles::fromJson(j["checks"]);
     }
     cfg.targetFps = j.value("targetFps", cfg.targetFps);
     cfg.captureAdapter = j.value("captureAdapter", cfg.captureAdapter);

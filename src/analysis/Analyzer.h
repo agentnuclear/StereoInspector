@@ -29,6 +29,8 @@ public:
     FrameTime getFrameTime() const;
     bool isRunning() const;
     void setConfig(const AppConfig& config);
+    AppConfig getConfig() const;
+    void setCheckToggles(const CheckToggles& toggles);
     std::vector<IStereoAnalyzer*> analyzers() const;
     MetricHistory getHistory() const;
 

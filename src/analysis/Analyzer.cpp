@@ -82,6 +82,28 @@ std::vector<IStereoAnalyzer*> AnalyzerPipeline::analyzers() const {
 
 void AnalyzerPipeline::setConfig(const AppConfig& config) { m_impl->m_config = config; }
 
+AppConfig AnalyzerPipeline::getConfig() const { return m_impl->m_config; }
+
+void AnalyzerPipeline::setCheckToggles(const CheckToggles& toggles) {
+    m_impl->m_config.checks = toggles;
+    for (auto& a : m_impl->m_analyzers) {
+        const auto& name = a->name();
+        if (name == "SSIM") { a->setEnabled(toggles.ssim); }
+        else if (name == "PixelDiff") { a->setEnabled(toggles.pixelDiff); }
+        else if (name == "Histogram") { a->setEnabled(toggles.histogram); }
+        else if (name == "Edge") { a->setEnabled(toggles.edge); }
+        else if (name == "ORB") { a->setEnabled(toggles.orb); }
+        else if (name == "OpticalFlow") { a->setEnabled(toggles.opticalFlow); }
+        else if (name == "Blur") { a->setEnabled(toggles.blur); }
+        else if (name == "Brightness") { a->setEnabled(toggles.brightness); }
+        else if (name == "Contrast") { a->setEnabled(toggles.contrast); }
+        else if (name == "Bloom") { a->setEnabled(toggles.bloom); }
+        else if (name == "Shadow") { a->setEnabled(toggles.shadow); }
+        else if (name == "StereoOffset") { a->setEnabled(toggles.stereoOffset); }
+        else if (name == "OCR") { a->setEnabled(toggles.ocr); }
+    }
+}
+
 void AnalyzerPipeline::setBaseline(const cv::Mat& leftEye, const cv::Mat& rightEye) {
     std::lock_guard<std::mutex> lock(m_impl->m_baselineMutex);
     m_impl->m_pendingLeft = leftEye.clone();
@@ -121,87 +143,105 @@ SceneConfidence AnalyzerPipeline::computeSceneConfidence(const cv::Mat& left, co
     SceneConfidence sc;
     double threshold = m_impl->m_config.sceneConfidenceThreshold;
 
-    auto evalEye = [&](const cv::Mat& eye) -> SceneConfidence {
-        SceneConfidence e;
-        if (eye.empty()) {
-            e.overall = 0.0;
-            e.reliable = false;
-            return e;
-        }
+    auto evalRegion = [&](const cv::Mat& region) -> double {
+        if (region.empty() || region.total() < 100) return 0.0;
 
-        cv::Mat gray;
-        if (eye.channels() == 3) cv::cvtColor(eye, gray, cv::COLOR_BGR2GRAY);
-        else gray = eye;
+        double totalPixels = (double)region.total();
 
-        double totalPixels = (double)gray.total();
-
-        // 1. Luminance – mean pixel value (0–1)
-        double mean = cv::mean(gray)[0] / 255.0;
-        // Penalize very dark (< 0.05) and very bright (> 0.95)
+        // Luminance
+        double mean = cv::mean(region)[0] / 255.0;
         double lumScore = 1.0;
         if (mean < 0.05) lumScore = mean / 0.05;
         else if (mean > 0.95) lumScore = (1.0 - mean) / 0.05;
-        e.luminanceScore = lumScore;
 
-        // 2. Edge density via Sobel magnitude
-        cv::Mat gradX, gradY, mag;
-        cv::Sobel(gray, gradX, CV_32F, 1, 0, 3);
-        cv::Sobel(gray, gradY, CV_32F, 0, 1, 3);
-        cv::magnitude(gradX, gradY, mag);
-        cv::Scalar meanMag = cv::mean(mag);
-        double edgeDensity = meanMag[0] / 255.0;  // normalized 0–1
-        e.edgeDensityScore = std::min(1.0, edgeDensity * 10.0);  // scale up, cap at 1.0
+        // Edge density via Sobel magnitude
+        cv::Mat gx, gy, mag;
+        cv::Sobel(region, gx, CV_32F, 1, 0, 3);
+        cv::Sobel(region, gy, CV_32F, 0, 1, 3);
+        cv::magnitude(gx, gy, mag);
+        double edgeDensity = cv::mean(mag)[0] / 255.0;
+        double edgeScore = std::min(1.0, edgeDensity * 10.0);
 
-        // 3. Texture variance – Laplacian variance
+        // Texture variance – Laplacian variance
         cv::Mat lap;
-        cv::Laplacian(gray, lap, CV_32F);
-        cv::Scalar meanLap, stddevLap;
-        cv::meanStdDev(lap, meanLap, stddevLap);
-        double lapVar = stddevLap[0] / 255.0;
-        e.textureScore = std::min(1.0, lapVar * 20.0);  // scale up, cap at 1.0
+        cv::Laplacian(region, lap, CV_32F);
+        cv::Scalar mLap, sLap;
+        cv::meanStdDev(lap, mLap, sLap);
+        double lapVar = sLap[0] / 255.0;
+        double texScore = std::min(1.0, lapVar * 20.0);
 
-        // 4. Feature count – FAST corners
+        // Feature count – FAST corners (lower threshold: 10 instead of 20)
         std::vector<cv::KeyPoint> kps;
-        cv::FAST(gray, kps, 20, true);
-        double featRatio = (double)kps.size() / (totalPixels / 1000.0);  // features per 1k pixels
-        e.featureScore = std::min(1.0, featRatio * 2.0);
+        cv::FAST(region, kps, 10, true);
+        double featRatio = (double)kps.size() / std::max(1.0, totalPixels / 1000.0);
+        double featScore = std::min(1.0, featRatio * 2.0);
 
-        // 5. Entropy – Shannon entropy of histogram
+        // Entropy
         int histSize = 256;
         float range[] = {0, 256};
         const float* histRange = {range};
         cv::Mat hist;
-        cv::calcHist(&gray, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange);
+        cv::calcHist(&region, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange);
         cv::normalize(hist, hist, 1.0, 0.0, cv::NORM_L1);
         double entropy = 0.0;
         for (int i = 0; i < histSize; i++) {
             float p = hist.at<float>(i);
             if (p > 0.001f) entropy -= p * std::log2(p);
         }
-        double maxEntropy = std::log2(256.0);
-        e.entropyScore = entropy / maxEntropy;
+        double entScore = entropy / std::log2(256.0);
 
-        // Combined score (weighted)
-        e.overall = 0.20 * e.luminanceScore +
-                    0.20 * e.edgeDensityScore +
-                    0.20 * e.textureScore +
-                    0.20 * e.featureScore +
-                    0.20 * e.entropyScore;
-        e.overall = std::max(0.0, std::min(1.0, e.overall));
-        e.reliable = (e.overall >= threshold);
-        return e;
+        return 0.20 * lumScore + 0.20 * edgeScore +
+               0.20 * texScore + 0.20 * featScore + 0.20 * entScore;
     };
 
-    // Evaluate left eye; use right eye as tiebreaker
-    SceneConfidence leftSc = evalEye(left);
-    SceneConfidence rightSc = evalEye(right);
-    sc.luminanceScore = std::min(leftSc.luminanceScore, rightSc.luminanceScore);
-    sc.edgeDensityScore = std::min(leftSc.edgeDensityScore, rightSc.edgeDensityScore);
-    sc.textureScore = std::min(leftSc.textureScore, rightSc.textureScore);
-    sc.featureScore = std::min(leftSc.featureScore, rightSc.featureScore);
-    sc.entropyScore = std::min(leftSc.entropyScore, rightSc.entropyScore);
-    sc.overall = std::min(leftSc.overall, rightSc.overall);
+    auto evalEyeQuadrants = [&](const cv::Mat& eye) -> std::vector<double> {
+        if (eye.empty()) return {0.0, 0.0, 0.0, 0.0};
+        cv::Mat gray;
+        if (eye.channels() == 3) cv::cvtColor(eye, gray, cv::COLOR_BGR2GRAY);
+        else gray = eye;
+
+        int midX = gray.cols / 2;
+        int midY = gray.rows / 2;
+        std::vector<double> scores;
+        scores.push_back(evalRegion(gray(cv::Rect(0, 0, midX, midY))));          // TL
+        scores.push_back(evalRegion(gray(cv::Rect(midX, 0, gray.cols - midX, midY)))); // TR
+        scores.push_back(evalRegion(gray(cv::Rect(0, midY, midX, gray.rows - midY)))); // BL
+        scores.push_back(evalRegion(gray(cv::Rect(midX, midY, gray.cols - midX, gray.rows - midY)))); // BR
+        return scores;
+    };
+
+    // Quadrant scores for each eye
+    std::vector<double> leftQ = evalEyeQuadrants(left);
+    std::vector<double> rightQ = evalEyeQuadrants(right);
+
+    // Take worst score per quadrant across both eyes
+    std::vector<double> perQuadrant(4);
+    for (int i = 0; i < 4; i++) {
+        perQuadrant[i] = std::min(leftQ[i], rightQ[i]);
+    }
+
+    // Use average of best 2 quadrants
+    std::sort(perQuadrant.begin(), perQuadrant.end(), std::greater<double>());
+    double bestAvg = (perQuadrant[0] + perQuadrant[1]) / 2.0;
+
+    // Full-image fallback for uniform scenes
+    cv::Mat leftGray, rightGray;
+    if (left.channels() == 3) { cv::cvtColor(left, leftGray, cv::COLOR_BGR2GRAY); cv::cvtColor(right, rightGray, cv::COLOR_BGR2GRAY); }
+    else { leftGray = left; rightGray = right; }
+    double leftFull = evalRegion(leftGray);
+    double rightFull = evalRegion(rightGray);
+    double fullScore = std::min(leftFull, rightFull);
+
+    // Overall = blend: prefer best-quadrant analysis but don't penalize uniform scenes
+    sc.overall = std::max(bestAvg, fullScore * 0.5);
+    sc.overall = std::max(0.0, std::min(1.0, sc.overall));
     sc.reliable = (sc.overall >= threshold);
+
+    sc.luminanceScore = sc.overall;
+    sc.edgeDensityScore = sc.overall;
+    sc.textureScore = sc.overall;
+    sc.featureScore = sc.overall;
+    sc.entropyScore = sc.overall;
 
     return sc;
 }
@@ -436,11 +476,20 @@ void AnalyzerPipeline::processLoop(LatestFrameBuffer& frameBuffer) {
         }
         result.timestamp = std::chrono::steady_clock::now();
 
+        const auto& chk = m_impl->m_config.checks;
+
         // Temporal analysis
-        m_impl->m_temporal->analyze(frame->leftEye, frame->rightEye, result);
+        if (chk.temporal) {
+            m_impl->m_temporal->analyze(frame->leftEye, frame->rightEye, result);
+        }
 
         // Scene confidence — gate all downstream decisions
-        result.sceneConfidence = computeSceneConfidence(frame->leftEye, frame->rightEye);
+        if (chk.sceneConfidence) {
+            result.sceneConfidence = computeSceneConfidence(frame->leftEye, frame->rightEye);
+        } else {
+            result.sceneConfidence.reliable = true;
+            result.sceneConfidence.overall = 1.0;
+        }
 
         if (!result.sceneConfidence.reliable) {
             // Insufficient visual information — do not compare, do not score
@@ -454,12 +503,16 @@ void AnalyzerPipeline::processLoop(LatestFrameBuffer& frameBuffer) {
             result.stereoIntegrityScore = 100.0;
             result.deviations.clear();
             result.issues.clear();
-        } else if (m_impl->m_baselineActive) {
+        } else if (m_impl->m_baselineActive && chk.baselineComparison) {
             std::lock_guard<std::mutex> lock(m_impl->m_baselineMutex);
             compareWithBaseline(result);
         } else {
-            computeHealthScore(result);
-            result.stereoIntegrityScore = result.stereoHealthScore;
+            if (chk.healthScore) {
+                computeHealthScore(result);
+                result.stereoIntegrityScore = result.stereoHealthScore;
+            } else {
+                result.stereoIntegrityScore = 100.0;
+            }
             if (result.status == FrameStatus::PASS) result.stereoStatus = StereoStatus::SAFE;
             else if (result.status == FrameStatus::WARNING) result.stereoStatus = StereoStatus::WARNING;
             else result.stereoStatus = StereoStatus::DESYNC;
@@ -502,7 +555,10 @@ AnalysisResult AnalyzerPipeline::analyzeFrame(const cv::Mat& left, const cv::Mat
     result.frameNumber = frameNum;
 
     // Step 1: Compute stereo correspondence
-    CorrespondenceResult corr = m_correspondence.compute(left, right);
+    CorrespondenceResult corr;
+    if (m_impl->m_config.checks.correspondence) {
+        corr = m_correspondence.compute(left, right);
+    }
 
     // Step 2: Run registered analyzers on ALIGNED (warped) images
     const cv::Mat& alignedRight = corr.success ? corr.warpedRight : right;
@@ -518,6 +574,7 @@ AnalysisResult AnalyzerPipeline::analyzeFrame(const cv::Mat& left, const cv::Mat
 
     // Step 3-6: Compute derived metrics from correspondence
     if (corr.success) {
+        const auto& chk = m_impl->m_config.checks;
         result.residual.alignedSSIM = result.ssim;
         result.residual.alignedPixDiffPercent = result.pixelDiffPercent;
         result.residual.alignedBrightnessDelta = result.brightnessDelta;
@@ -525,15 +582,26 @@ AnalysisResult AnalyzerPipeline::analyzeFrame(const cv::Mat& left, const cv::Mat
         result.residual.alignedHistogramCorrelation = result.histogramCorrelation;
         result.residual.occlusionRatio = corr.occlusionMask.empty()
             ? 0.0 : (double)cv::countNonZero(corr.occlusionMask) / (double)(left.total());
-        computeDisparityMetrics(corr, result);
-        computeMatchQuality(corr, result);
-        computeAsymmetry(left, corr.warpedRight, corr.occlusionMask, result);
-        try {
-            detectIssues(result, left, corr.warpedRight, corr.occlusionMask);
-        } catch (const std::exception& e) {
-            spdlog::error("detectIssues exception: {}", e.what());
-        } catch (...) {
-            spdlog::error("detectIssues unknown exception");
+        if (chk.disparityMetrics) {
+            computeDisparityMetrics(corr, result);
+        }
+        if (chk.matchQuality) {
+            computeMatchQuality(corr, result);
+        } else {
+            result.matchQuality.confidence = 0.0;
+            result.matchQuality.totalMatches = 0;
+        }
+        if (chk.asymmetry) {
+            computeAsymmetry(left, corr.warpedRight, corr.occlusionMask, result);
+        }
+        if (chk.detectIssues) {
+            try {
+                detectIssues(result, left, corr.warpedRight, corr.occlusionMask);
+            } catch (const std::exception& e) {
+                spdlog::error("detectIssues exception: {}", e.what());
+            } catch (...) {
+                spdlog::error("detectIssues unknown exception");
+            }
         }
     } else {
         result.matchQuality.confidence = 0.0;
@@ -580,7 +648,8 @@ void AnalyzerPipeline::computeDisparityMetrics(const CorrespondenceResult& corr,
 void AnalyzerPipeline::computeMatchQuality(const CorrespondenceResult& corr,
                                             AnalysisResult& result) {
     result.matchQuality.confidence = (double)corr.matchQuality;
-    result.matchQuality.totalMatches = (int)corr.disparityMap.disparity.total();
+    result.matchQuality.totalMatches = corr.disparityMap.validMask.empty()
+        ? 0 : cv::countNonZero(corr.disparityMap.validMask);
 
     if (!corr.disparityMap.disparity.empty()) {
         double mean = result.disparity.meanDisparity;
@@ -606,6 +675,7 @@ void AnalyzerPipeline::computeMatchQuality(const CorrespondenceResult& corr,
 void AnalyzerPipeline::computeAsymmetry(const cv::Mat& left, const cv::Mat& warpedRight,
                                          const cv::Mat& occlusionMask, AnalysisResult& result) {
     if (left.empty() || warpedRight.empty()) return;
+    const auto& chk = m_impl->m_config.checks;
 
     cv::Mat lGray, rGray;
     if (left.channels() == 3) {
@@ -625,64 +695,107 @@ void AnalyzerPipeline::computeAsymmetry(const cv::Mat& left, const cv::Mat& warp
     }
 
     // Lighting asymmetry
-    cv::Scalar mL = cv::mean(lGray, valid);
-    cv::Scalar mR = cv::mean(rGray, valid);
-    result.asymmetry.lightingAsymmetry = std::abs(mL[0] - mR[0]) / 255.0;
-    result.brightnessDelta = result.asymmetry.lightingAsymmetry;
+    if (chk.lightingAsym) {
+        cv::Scalar mL = cv::mean(lGray, valid);
+        cv::Scalar mR = cv::mean(rGray, valid);
+        result.asymmetry.lightingAsymmetry = std::abs(mL[0] - mR[0]) / 255.0;
+        result.brightnessDelta = result.asymmetry.lightingAsymmetry;
+    }
 
-    // Texture asymmetry (Laplacian variance)
-    cv::Mat lapL, lapR;
-    cv::Laplacian(lGray, lapL, CV_32F);
-    cv::Laplacian(rGray, lapR, CV_32F);
-    cv::Scalar varL = cv::mean(lapL.mul(lapL), valid);
-    cv::Scalar varR = cv::mean(lapR.mul(lapR), valid);
-    double maxV = std::max(varL[0], varR[0]);
-    result.asymmetry.textureAsymmetry = maxV > 0.1 ? std::abs(varL[0] - varR[0]) / maxV : 0.0;
-    result.asymmetry.blurAsymmetry = result.asymmetry.textureAsymmetry;
-    result.blurDelta = result.asymmetry.blurAsymmetry;
+    // Texture asymmetry (Laplacian variance – high-frequency detail difference)
+    if (chk.textureAsym) {
+        cv::Mat lapL, lapR;
+        cv::Laplacian(lGray, lapL, CV_32F);
+        cv::Laplacian(rGray, lapR, CV_32F);
+        cv::Scalar varL = cv::mean(lapL.mul(lapL), valid);
+        cv::Scalar varR = cv::mean(lapR.mul(lapR), valid);
+        double maxV = std::max(varL[0], varR[0]);
+        result.asymmetry.textureAsymmetry = maxV > 0.1 ? std::abs(varL[0] - varR[0]) / maxV : 0.0;
+    }
+
+    // Blur asymmetry (Tenengrad focus measure – Sobel gradient variance)
+    if (chk.blurAsym) {
+        cv::Mat gxL, gyL, gxR, gyR, gradL, gradR;
+        cv::Sobel(lGray, gxL, CV_32F, 1, 0, 3);
+        cv::Sobel(lGray, gyL, CV_32F, 0, 1, 3);
+        cv::Sobel(rGray, gxR, CV_32F, 1, 0, 3);
+        cv::Sobel(rGray, gyR, CV_32F, 0, 1, 3);
+        cv::magnitude(gxL, gyL, gradL);
+        cv::magnitude(gxR, gyR, gradR);
+        cv::Scalar mGradL, vGradL, mGradR, vGradR;
+        cv::meanStdDev(gradL, mGradL, vGradL, valid);
+        cv::meanStdDev(gradR, mGradR, vGradR, valid);
+        double maxV = std::max(vGradL[0], vGradR[0]);
+        result.asymmetry.blurAsymmetry = maxV > 0.1 ? std::abs(vGradL[0] - vGradR[0]) / maxV : 0.0;
+        result.blurDelta = result.asymmetry.blurAsymmetry;
+    }
 
     // Post-process asymmetry (histogram shape)
-    int histSize = 256;
-    float range[] = {0, 256};
-    const float* histRange = {range};
-    cv::Mat histL, histR;
-    cv::calcHist(&lGray, 1, 0, valid, histL, 1, &histSize, &histRange);
-    cv::calcHist(&rGray, 1, 0, valid, histR, 1, &histSize, &histRange);
-    cv::normalize(histL, histL, 1.0);
-    cv::normalize(histR, histR, 1.0);
-    result.asymmetry.postProcessAsymmetry = 1.0 - cv::compareHist(histL, histR, cv::HISTCMP_CORREL);
-    result.histogramCorrelation = 1.0 - result.asymmetry.postProcessAsymmetry;
+    if (chk.postProcessAsym) {
+        int histSize = 256;
+        float range[] = {0, 256};
+        const float* histRange = {range};
+        cv::Mat histL, histR;
+        cv::calcHist(&lGray, 1, 0, valid, histL, 1, &histSize, &histRange);
+        cv::calcHist(&rGray, 1, 0, valid, histR, 1, &histSize, &histRange);
+        cv::normalize(histL, histL, 1.0);
+        cv::normalize(histR, histR, 1.0);
+        result.asymmetry.postProcessAsymmetry = 1.0 - cv::compareHist(histL, histR, cv::HISTCMP_CORREL);
+        result.histogramCorrelation = 1.0 - result.asymmetry.postProcessAsymmetry;
+    }
 
-    // Bloom asymmetry
-    cv::Mat brightL, brightR;
-    cv::threshold(lGray, brightL, 200, 255, cv::THRESH_BINARY);
-    cv::threshold(rGray, brightR, 200, 255, cv::THRESH_BINARY);
-    double totalValid = (double)cv::countNonZero(valid);
-    if (totalValid > 0) {
-        double bL = (double)cv::countNonZero(brightL & valid);
-        double bR = (double)cv::countNonZero(brightR & valid);
-        result.asymmetry.bloomAsymmetry = std::abs(bL / totalValid - bR / totalValid);
-        result.bloomDifference = result.asymmetry.bloomAsymmetry;
-
-        // Shadow asymmetry
-        cv::Mat darkL, darkR;
-        cv::threshold(lGray, darkL, 50, 255, cv::THRESH_BINARY_INV);
-        cv::threshold(rGray, darkR, 50, 255, cv::THRESH_BINARY_INV);
-        double sL = (double)cv::countNonZero(darkL & valid);
-        double sR = (double)cv::countNonZero(darkR & valid);
-        result.asymmetry.shadowAsymmetry = std::abs(sL / totalValid - sR / totalValid);
-        result.shadowDifference = result.asymmetry.shadowAsymmetry;
+    // Bloom & shadow asymmetry
+    if (chk.bloomAsym || chk.shadowAsym) {
+        cv::Mat brightL, brightR;
+        cv::threshold(lGray, brightL, 200, 255, cv::THRESH_BINARY);
+        cv::threshold(rGray, brightR, 200, 255, cv::THRESH_BINARY);
+        double totalValid = (double)cv::countNonZero(valid);
+        if (totalValid > 0) {
+            if (chk.bloomAsym) {
+                double bL = (double)cv::countNonZero(brightL & valid);
+                double bR = (double)cv::countNonZero(brightR & valid);
+                result.asymmetry.bloomAsymmetry = std::abs(bL / totalValid - bR / totalValid);
+                result.bloomDifference = result.asymmetry.bloomAsymmetry;
+            }
+            if (chk.shadowAsym) {
+                cv::Mat darkL, darkR;
+                cv::threshold(lGray, darkL, 50, 255, cv::THRESH_BINARY_INV);
+                cv::threshold(rGray, darkR, 50, 255, cv::THRESH_BINARY_INV);
+                double sL = (double)cv::countNonZero(darkL & valid);
+                double sR = (double)cv::countNonZero(darkR & valid);
+                result.asymmetry.shadowAsymmetry = std::abs(sL / totalValid - sR / totalValid);
+                result.shadowDifference = result.asymmetry.shadowAsymmetry;
+            }
+        }
     }
 
     // Contrast asymmetry (stddev delta)
-    cv::Scalar stdL, stdR;
-    cv::meanStdDev(lGray, mL, stdL);
-    cv::meanStdDev(rGray, mR, stdR);
-    result.asymmetry.contrastAsymmetry = std::abs(stdL[0] - stdR[0]) / 255.0;
-    result.contrastDelta = result.asymmetry.contrastAsymmetry;
+    if (chk.contrastAsym) {
+        cv::Scalar mL, mR, stdL, stdR;
+        cv::meanStdDev(lGray, mL, stdL);
+        cv::meanStdDev(rGray, mR, stdR);
+        result.asymmetry.contrastAsymmetry = std::abs(stdL[0] - stdR[0]) / 255.0;
+        result.contrastDelta = result.asymmetry.contrastAsymmetry;
+    }
+
+    // Chromatic asymmetry (per-channel color shift difference)
+    if (chk.chromaticAsym && left.channels() == 3 && warpedRight.channels() == 3) {
+        std::vector<cv::Mat> chL, chR;
+        cv::split(left, chL);
+        cv::split(warpedRight, chR);
+        double totalDiff = 0.0;
+        for (int c = 0; c < 3; c++) {
+            cv::Scalar mL = cv::mean(chL[c], valid);
+            cv::Scalar mR = cv::mean(chR[c], valid);
+            totalDiff += std::abs(mL[0] - mR[0]);
+        }
+        result.asymmetry.chromaticAsymmetry = totalDiff / (3.0 * 255.0);
+    }
 
     // Geometry missing
-    result.asymmetry.geometryMissing = result.residual.occlusionRatio;
+    if (chk.geometryMissing) {
+        result.asymmetry.geometryMissing = result.residual.occlusionRatio;
+    }
 }
 
 void AnalyzerPipeline::computeHealthScore(AnalysisResult& result) {
@@ -762,6 +875,7 @@ void AnalyzerPipeline::detectIssues(AnalysisResult& result,
                                      const cv::Mat& left, const cv::Mat& warpedRight,
                                      const cv::Mat& occlusionMask) {
     if (left.empty() || warpedRight.empty()) return;
+    const auto& chk = m_impl->m_config.checks;
     result.detectedIssues.clear();
 
     cv::Mat diff;
@@ -856,40 +970,48 @@ void AnalyzerPipeline::detectIssues(AnalysisResult& result,
         features.regionPosX = (float)box.x / (float)std::max(left.cols, 1);
         features.regionPosY = (float)box.y / (float)std::max(left.rows, 1);
 
-        // Use the classifier
-        ClassificationEvidence ev = m_classifier.extractEvidence(
-            leftRegion, rightRegion, leftGray, rightGray, residualMap, box,
-            left.cols, left.rows);
+        // Use the classifier (if enabled) or create a generic issue
+        DetectedIssue classified;
+        if (chk.issueClassification) {
+            ClassificationEvidence ev = m_classifier.extractEvidence(
+                leftRegion, rightRegion, leftGray, rightGray, residualMap, box,
+                left.cols, left.rows);
 
-        // Copy evidence into features
-        features.colorDiff = ev.colorDiff;
-        features.edgeSimilarity = ev.edgeSimilarity;
-        features.textureSimilarity = ev.textureSimilarity;
-        features.gradientConsistency = ev.gradientConsistency;
-        features.histogramSimilarity = ev.histogramSimilarity;
-        features.bloomRatio = ev.meanDiff > 0.15f ? ev.meanDiff : 0.0f;
-        features.edgeRatio = ev.edgeRatio;
-        features.nearBorder = ev.nearBorder;
-        features.nearCenter = ev.nearCenter;
-        features.hasColor = ev.hasColor;
+            // Copy evidence into features
+            features.colorDiff = ev.colorDiff;
+            features.edgeSimilarity = ev.edgeSimilarity;
+            features.textureSimilarity = ev.textureSimilarity;
+            features.gradientConsistency = ev.gradientConsistency;
+            features.histogramSimilarity = ev.histogramSimilarity;
+            features.bloomRatio = ev.meanDiff > 0.15f ? ev.meanDiff : 0.0f;
+            features.edgeRatio = ev.edgeRatio;
+            features.nearBorder = ev.nearBorder;
+            features.nearCenter = ev.nearCenter;
+            features.hasColor = ev.hasColor;
 
-        double totalPixD = (double)leftGray.total();
-        if (totalPixD > 0) {
-            double eL = (double)cv::countNonZero(leftGray > 30) / totalPixD;
-            double eR = (double)cv::countNonZero(rightGray > 30) / totalPixD;
-            features.leftContentDensity = (float)eL;
-            features.rightContentDensity = (float)eR;
+            double totalPixD = (double)leftGray.total();
+            if (totalPixD > 0) {
+                double eL = (double)cv::countNonZero(leftGray > 30) / totalPixD;
+                double eR = (double)cv::countNonZero(rightGray > 30) / totalPixD;
+                features.leftContentDensity = (float)eL;
+                features.rightContentDensity = (float)eR;
+            }
+
+            // Canny edges for edge ratio
+            cv::Mat edgesL, edgesR;
+            cv::Canny(leftGray, edgesL, 50.0, 150.0);
+            cv::Canny(rightGray, edgesR, 50.0, 150.0);
+            double countL = (double)cv::countNonZero(edgesL);
+            double countR = (double)cv::countNonZero(edgesR);
+            features.edgeRatio = totalPixD > 0 ? (float)(std::abs(countL - countR) / totalPixD) : 0.0f;
+
+            classified = m_classifier.classify(features);
+        } else {
+            // No classifier: use a generic classification
+            classified.type = IssueType::LowConfidence;
+            classified.confidence = std::min(1.0f, (float)(features.meanDiff * 2.0f));
+            classified.evidence = ClassificationEvidence{};
         }
-
-        // Canny edges for edge ratio
-        cv::Mat edgesL, edgesR;
-        cv::Canny(leftGray, edgesL, 50.0, 150.0);
-        cv::Canny(rightGray, edgesR, 50.0, 150.0);
-        double countL = (double)cv::countNonZero(edgesL);
-        double countR = (double)cv::countNonZero(edgesR);
-        features.edgeRatio = totalPixD > 0 ? (float)(std::abs(countL - countR) / totalPixD) : 0.0f;
-
-        DetectedIssue classified = m_classifier.classify(features);
         classified.boundingBox = issue.boundingBox;
         classified.areaPixels = issue.areaPixels;
         classified.severity = issue.severity;
@@ -919,7 +1041,9 @@ void AnalyzerPipeline::detectIssues(AnalysisResult& result,
     }
 
     // Merge overlapping regions
-    rawIssues = m_merger.merge(rawIssues);
+    if (chk.issueMerging) {
+        rawIssues = m_merger.merge(rawIssues);
+    }
 
     // Filter and sort
     RegionMerger::Config mergerCfg = m_merger.config();

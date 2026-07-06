@@ -1,5 +1,6 @@
 #pragma once
 #include "core/Types.h"
+#include "config/Config.h"
 #include "visualization/Visualizer.h"
 #include <imgui.h>
 #include <atomic>
@@ -29,6 +30,8 @@ public:
     using LayoutCallback = std::function<StereoLayout()>;
     using SyncCallback = std::function<void()>;
     using ClearBaselineCallback = std::function<void()>;
+    using ConfigCallback = std::function<void(const CheckToggles&)>;
+    using GetConfigCallback = std::function<CheckToggles()>;
 
     void setResultCallback(ResultCallback resultFn);
     void setTimeCallback(TimeCallback timeFn);
@@ -37,6 +40,8 @@ public:
     void setLayoutCallback(LayoutCallback layoutFn);
     void setSyncCallback(SyncCallback syncFn);
     void setClearBaselineCallback(ClearBaselineCallback clearFn);
+    void setConfigCallback(ConfigCallback cb);
+    void setGetConfigCallback(GetConfigCallback cb);
     void setVisualizationMode(VisualizationMode mode);
     void setVisible(bool visible);
     void setFrozen(bool frozen);
@@ -71,6 +76,7 @@ private:
     void renderStatusTab(const AnalysisResult& result, const FrameTime& ft);
     void renderMetricsTab(const AnalysisResult& result);
     void renderIssuesTab(const AnalysisResult& result);
+    void renderChecksTab();
     void renderGraphsTab(const MetricHistory& history);
 
     // Shared UI helpers
@@ -110,6 +116,8 @@ private:
     LayoutCallback m_getLayout;
     SyncCallback m_doSync;
     ClearBaselineCallback m_doClearBaseline;
+    ConfigCallback m_updateChecks;
+    GetConfigCallback m_getChecks;
 
     struct SyncFeedbackDisplay {
         bool show = false;

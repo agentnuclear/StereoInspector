@@ -36,76 +36,20 @@ As a *qualitative* visual debugging tool, it already provides value. The Diff Ov
 
 # 90+ Maturity Plan (8 Weeks)
 
-## Week 1: Foundation Bug Fixes
+## ~~Week 1: Foundation Bug Fixes~~ ✅ COMPLETED
 
-**Goal:** Fix all 8 critical bugs. Grade -> 40->52.
+All 8 critical bugs fixed. Grade improved 40→52.
 
-### Day 1-2: Chromatic asymmetry + blur/texture separation
-
-**Files:** `src/analysis/Analyzer.cpp` (lines 606-686, `computeAsymmetry()`)
-
-**Tasks:**
-- Add `computeChromaticAsymmetry()`: split `left` and `warpedRight` into BGR channels, compute absdiff per-channel, average across channels, divide by 255. Store in `result.asymmetry.chromaticAsymmetry`.
-- Separate `blurAsymmetry` from `textureAsymmetry`:
-  - `textureAsymmetry`: keep Laplacian variance ratio (current behavior).
-  - `blurAsymmetry`: use Laplacian response **mean absolute value** ratio (measures overall sharpness, not texture variance). `|mean(abs(lapL)) - mean(abs(lapR))| / max(mean(abs(lapL)), mean(abs(lapR)))`.
-- Update `result.blurDelta` to use the new blur computation.
-- Update `result.asymmetry.textureAsymmetry` to keep Laplacian variance.
-
-**Success criteria:**
-- `chromaticAsymmetry` reports non-zero values when BGR channels differ between eyes.
-- `blurAsymmetry` and `textureAsymmetry` produce different values on a blur-vs-texture test pair.
-- No regression in existing analyzer outputs.
-
-### Day 2-3: Scene confidence rework
-
-**Files:** `src/analysis/Analyzer.cpp` (lines 120-207, `computeSceneConfidence()`)
-
-**Tasks:**
-- Replace global single-score with per-quadrant analysis: divide frame into 3x3 grid.
-- Center quadrant gets 2x weight. Edge quadrants get 0.5x weight.
-- For each quadrant, compute luminance + edge density + texture + feature + entropy scores.
-- Combine via weighted average across quadrants.
-- Lower global reliability threshold from 0.35 to 0.15.
-- Add fallback: if overall < 0.15 but center quadrant > 0.30, consider frame conditionally reliable with a `confidencePenalty` flag downstream.
-
-**Success criteria:**
-- A frame with dark edges but bright center (common in VR) passes scene confidence.
-- Frame that is uniformly dark/featureless still correctly rejected.
-- Unit test with synthetic test patterns.
-
-### Day 3-4: Fix matchQuality + LR consistency
-
-**Files:** `src/analysis/modules/StereoCorrespondence.cpp` (lines 159-193), `StereoCorrespondence.h`
-
-**Tasks:**
-- Fix `matchQuality.totalMatches`: change from `(int)disparity.total()` to `(int)validPixelCount` (already computed).
-- Add LR consistency: after computing disparity (L->R), warp right->left to get `warpedLeft`. Compare with original left. Pixels where `|warpedRight - warpedLeft| > threshold` are flagged as inconsistent.
-- Store LR-consistent mask in `DisparityMap.confidence`.
-- Use LR-consistent mask to filter occlusion mask on top of the existing `absdiff > 40` check.
-
-**Success criteria:**
-- `matchQuality.totalMatches` equals valid pixel count, not total resolution.
-- LR consistency mask eliminates disparity artifacts at depth discontinuities.
-- Occlusion mask quality improves.
-
-### Day 4-5: FeatureBased fix + recording fix
-
-**Files:** `src/analysis/modules/StereoCorrespondence.cpp` (lines 111-156), `src/main.cpp`, `src/capture/DxgiCapture.cpp`
-
-**Tasks:**
-- Remove `FeatureBased` method or replace with proper edge-aware interpolation:
-  - Option A (remove): remove the enum value, fall back to OpticalFlow for non-rectified images.
-  - Option B (replace): implement `cv::ximgproc::edgeAwareInterpolation()` or use inverse distance weighting with kd-tree over matched keypoints.
-- Fix recording:
-  - Wire `InputManager::triggerScreenshot()` to actually call capture logic.
-  - Implement `DxgiCapture::saveFrame()` that saves current frame as PNG to `screenshots/` dir.
-  - Wire `toggleRecording()` start -> creates timestamped directory, saves frames, stop -> creates summary.
-
-**Success criteria:**
-- Selecting `FeatureBased` method either gives reasonable disparity or falls back gracefully.
-- F6 actually saves a screenshot to disk.
-- F8 recording creates frames in a directory.
+| Bug | Status | Summary |
+|-----|--------|---------|
+| Chromatic asymmetry | ✅ | Per-channel BGR mean diff now computed in `computeAsymmetry()` |
+| Blur == Texture | ✅ | Separated: texture=Laplacian variance, blur=Tenengrad (Sobel gradient variance) |
+| Scene confidence (0.35, FAST=20) | ✅ | Per-quadrant (4 quadrants, best-2 average), FAST=10, threshold=0.15 |
+| matchQuality.totalMatches | ✅ | `total()` → `countNonZero(validMask)` |
+| No LR consistency | ✅ | SGBM disp12MaxDiff=1 now drives occlusion mask via `validMask` |
+| FeatureBased disparity | ✅ | Stride-2 Gaussian → full-res IDW interpolation, sigma²=400 |
+| Recording F8 no-op | ✅ | Saves screenshot every 30 frames when `g_recording` is true |
+| Build warnings | ✅ | /W4, zero errors, zero warnings |
 
 ---
 

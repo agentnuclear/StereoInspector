@@ -47,6 +47,8 @@ void Overlay::setHistoryCallback(HistoryCallback historyFn) { m_getHistory = std
 void Overlay::setLayoutCallback(LayoutCallback layoutFn) { m_getLayout = std::move(layoutFn); }
 void Overlay::setSyncCallback(SyncCallback syncFn) { m_doSync = std::move(syncFn); }
 void Overlay::setClearBaselineCallback(ClearBaselineCallback clearFn) { m_doClearBaseline = std::move(clearFn); }
+void Overlay::setConfigCallback(ConfigCallback cb) { m_updateChecks = std::move(cb); }
+void Overlay::setGetConfigCallback(GetConfigCallback cb) { m_getChecks = std::move(cb); }
 void Overlay::setVisualizationMode(VisualizationMode mode) { m_vizMode = mode; }
 void Overlay::setCaptureSafe(bool safe) { m_captureSafe = safe; }
 bool Overlay::isCaptureSafe() const { return m_captureSafe.load(); }
@@ -404,6 +406,10 @@ void Overlay::renderHubWindow(const AnalysisResult& result, const FrameTime& ft,
         }
         if (ImGui::BeginTabItem("Issues")) {
             renderIssuesTab(result);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Checks")) {
+            renderChecksTab();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Graphs")) {
@@ -827,6 +833,109 @@ void Overlay::renderIssuesTab(const AnalysisResult& result) {
                     iss.invalidReason.c_str());
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Checks Tab – per-check enable/disable toggles
+// ---------------------------------------------------------------------------
+void Overlay::renderChecksTab() {
+    CheckToggles toggles;
+    if (m_getChecks) {
+        toggles = m_getChecks();
+    }
+
+    auto toggle = [&](const char* label, bool& flag) {
+        if (ImGui::Checkbox(label, &flag)) {
+            if (m_updateChecks) m_updateChecks(toggles);
+        }
+    };
+
+    if (ImGui::CollapsingHeader("Image Analysis", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Indent(8);
+        toggle("SSIM", toggles.ssim);
+        toggle("Pixel Difference", toggles.pixelDiff);
+        toggle("Histogram", toggles.histogram);
+        toggle("Edge", toggles.edge);
+        toggle("ORB Features", toggles.orb);
+        toggle("Optical Flow", toggles.opticalFlow);
+        toggle("Blur", toggles.blur);
+        toggle("Brightness", toggles.brightness);
+        toggle("Contrast", toggles.contrast);
+        toggle("Bloom", toggles.bloom);
+        toggle("Shadow", toggles.shadow);
+        toggle("Stereo Offset", toggles.stereoOffset);
+        toggle("OCR Text", toggles.ocr);
+        ImGui::Unindent(8);
+    }
+
+    ImGui::Dummy(ImVec2(0, 4));
+
+    if (ImGui::CollapsingHeader("Correspondence", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Indent(8);
+        toggle("Stereo Correspondence", toggles.correspondence);
+        toggle("Disparity Metrics", toggles.disparityMetrics);
+        toggle("Match Quality", toggles.matchQuality);
+        ImGui::Unindent(8);
+    }
+
+    ImGui::Dummy(ImVec2(0, 4));
+
+    if (ImGui::CollapsingHeader("Asymmetry", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Indent(8);
+        toggle("Master Asymmetry", toggles.asymmetry);
+        ImGui::Indent(16);
+        toggle("  Lighting", toggles.lightingAsym);
+        toggle("  Bloom", toggles.bloomAsym);
+        toggle("  Shadow", toggles.shadowAsym);
+        toggle("  Post-Process", toggles.postProcessAsym);
+        toggle("  Texture", toggles.textureAsym);
+        toggle("  Blur", toggles.blurAsym);
+        toggle("  Chromatic", toggles.chromaticAsym);
+        toggle("  Contrast", toggles.contrastAsym);
+        ImGui::Unindent(24);
+    }
+
+    ImGui::Dummy(ImVec2(0, 4));
+
+    if (ImGui::CollapsingHeader("Issue Detection", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Indent(8);
+        toggle("Detect Issues", toggles.detectIssues);
+        toggle("  Issue Classification", toggles.issueClassification);
+        toggle("  Issue Merging", toggles.issueMerging);
+        toggle("  Geometry Missing Check", toggles.geometryMissing);
+        ImGui::Unindent(8);
+    }
+
+    ImGui::Dummy(ImVec2(0, 4));
+
+    if (ImGui::CollapsingHeader("Scoring & Analysis", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Indent(8);
+        toggle("Temporal Analysis", toggles.temporal);
+        toggle("Scene Confidence", toggles.sceneConfidence);
+        toggle("Health Score", toggles.healthScore);
+        toggle("Baseline Comparison", toggles.baselineComparison);
+        ImGui::Unindent(8);
+    }
+
+    ImGui::Dummy(ImVec2(0, 6));
+
+    // Quick-select buttons
+    ImGui::Text("Quick Actions:");
+    if (ImGui::SmallButton("Enable All")) {
+        toggles = CheckToggles{};
+        for (auto& [key, val] : { std::pair<const char*, bool*>("", &toggles.correspondence) }) {
+            (void)key; (void)val;
+        }
+        // Set all to true by re-initializing
+        toggles = CheckToggles{};
+        if (m_updateChecks) m_updateChecks(toggles);
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Disable All")) {
+        CheckToggles allOff;
+        memset(&allOff, 0, sizeof(allOff));
+        if (m_updateChecks) m_updateChecks(allOff);
     }
 }
 

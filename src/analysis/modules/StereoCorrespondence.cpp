@@ -134,21 +134,21 @@ CorrespondenceResult StereoCorrespondence::compute(const cv::Mat& left, const cv
                     }
                 }
                 if (srcPts.size() >= 3) {
-                    // Thin-plate spline interpolation or RBF
-                    // Use griddata-style approach: nearest neighbor for speed
-                    for (int y = 0; y < dispFloat.rows; y += 2) {
+                    // Inverse Distance Weighting interpolation (full resolution)
+                    double sigma2 = 400.0; // falloff squared radius
+                    for (int y = 0; y < dispFloat.rows; y++) {
                         float* dPtr = dispFloat.ptr<float>(y);
-                        for (int x = 0; x < dispFloat.cols; x += 2) {
+                        for (int x = 0; x < dispFloat.cols; x++) {
                             double weightSum = 0, dispSum = 0;
-                            double sigma2 = 100.0; // falloff
                             for (size_t i = 0; i < srcPts.size(); i++) {
                                 double dx2 = x - srcPts[i].x;
                                 double dy2 = y - srcPts[i].y;
-                                double w = std::exp(-(dx2*dx2 + dy2*dy2) / (2.0 * sigma2));
+                                double dist2 = dx2*dx2 + dy2*dy2;
+                                double w = std::exp(-dist2 / (2.0 * sigma2));
                                 weightSum += w;
                                 dispSum += w * disparities[i];
                             }
-                            if (weightSum > 0) dPtr[x] = (float)(dispSum / weightSum);
+                            if (weightSum > 1e-6) dPtr[x] = (float)(dispSum / weightSum);
                         }
                     }
                 }
@@ -168,8 +168,13 @@ CorrespondenceResult StereoCorrespondence::compute(const cv::Mat& left, const cv
     result.warpedRight = warpImage(right, dispFloat, true);
     result.warpedLeft = warpImage(left, -dispFloat, false);
 
-    // Occlusion mask: pixels where warping produces large inconsistency
+    // Occlusion mask: LR inconsistent pixels + high warping error
     result.occlusionMask = cv::Mat::zeros(leftGray.size(), CV_8UC1);
+    // Start with LR-inconsistent pixels from SGBM (disparity < 0 = failed disp12MaxDiff)
+    if (!result.disparityMap.validMask.empty()) {
+        cv::bitwise_not(result.disparityMap.validMask, result.occlusionMask);
+    }
+    // Also include large warping inconsistencies
     if (!result.warpedRight.empty()) {
         cv::Mat wLeft, wRight;
         if (left.channels() == 3) {
@@ -181,7 +186,9 @@ CorrespondenceResult StereoCorrespondence::compute(const cv::Mat& left, const cv
         }
         cv::Mat diff;
         cv::absdiff(wLeft, wRight, diff);
-        cv::threshold(diff, result.occlusionMask, 40, 255, cv::THRESH_BINARY);
+        cv::Mat warpOcc;
+        cv::threshold(diff, warpOcc, 40, 255, cv::THRESH_BINARY);
+        cv::bitwise_or(result.occlusionMask, warpOcc, result.occlusionMask);
     }
 
     // Match quality: valid disparity ratio

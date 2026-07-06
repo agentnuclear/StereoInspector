@@ -50,17 +50,57 @@ struct LogConfig {
     int maxScreenshots = 1000;
 };
 
+struct CheckToggles {
+    bool correspondence = true;
+    bool ssim = true;
+    bool pixelDiff = true;
+    bool histogram = true;
+    bool edge = true;
+    bool orb = true;
+    bool opticalFlow = true;
+    bool blur = true;
+    bool brightness = true;
+    bool contrast = true;
+    bool bloom = true;
+    bool shadow = true;
+    bool stereoOffset = true;
+    bool ocr = true;
+    bool disparityMetrics = true;
+    bool matchQuality = true;
+    bool asymmetry = true;
+    bool lightingAsym = true;
+    bool bloomAsym = true;
+    bool shadowAsym = true;
+    bool postProcessAsym = true;
+    bool textureAsym = true;
+    bool blurAsym = true;
+    bool chromaticAsym = true;
+    bool contrastAsym = true;
+    bool geometryMissing = true;
+    bool detectIssues = true;
+    bool issueClassification = true;
+    bool issueMerging = true;
+    bool temporal = true;
+    bool sceneConfidence = true;
+    bool healthScore = true;
+    bool baselineComparison = true;
+
+    nlohmann::json toJson() const;
+    static CheckToggles fromJson(const nlohmann::json& j);
+};
+
 struct AppConfig {
     StereoRegion stereoRegion;
     AnalysisThresholds thresholds;
     LogConfig logging;
+    CheckToggles checks;
     int targetFps = 90;
     int captureAdapter = 0;
     int captureOutput = 0;
     bool enableOcr = false;
     bool startMinimized = false;
     std::string language = "en";
-    double sceneConfidenceThreshold = 0.35;
+    double sceneConfidenceThreshold = 0.15;
 
     nlohmann::json toJson() const;
     static AppConfig fromJson(const nlohmann::json& j);
