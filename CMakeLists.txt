@@ -29,6 +29,8 @@ set(SOURCES
     src/analysis/IssueClassifier.cpp
     src/analysis/RegionMerger.h
     src/analysis/RegionMerger.cpp
+    src/analysis/DataCollector.h
+    src/analysis/DataCollector.cpp
     src/analysis/modules/SsimAnalyzer.h
     src/analysis/modules/SsimAnalyzer.cpp
     src/analysis/modules/PixelDiffAnalyzer.h

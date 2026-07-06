@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include <shellapi.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/wincolor_sink.h>
@@ -10,6 +11,7 @@
 #include "core/Frame.h"
 #include "core/Types.h"
 #include "analysis/Analyzer.h"
+#include "analysis/DataCollector.h"
 #include "analysis/modules/SsimAnalyzer.h"
 #include "analysis/modules/PixelDiffAnalyzer.h"
 #include "analysis/modules/HistogramAnalyzer.h"
@@ -42,6 +44,78 @@ namespace {
     std::atomic<int> g_screenshotTrigger{0};
 }
 
+static std::unique_ptr<AnalyzerPipeline> createAnalyzer(const AppConfig& config) {
+    auto analyzer = std::make_unique<AnalyzerPipeline>(config);
+    analyzer->registerAnalyzer(std::make_unique<SsimAnalyzer>());
+    analyzer->registerAnalyzer(std::make_unique<PixelDiffAnalyzer>());
+    analyzer->registerAnalyzer(std::make_unique<HistogramAnalyzer>());
+    analyzer->registerAnalyzer(std::make_unique<EdgeAnalyzer>());
+    analyzer->registerAnalyzer(std::make_unique<OrbAnalyzer>());
+    analyzer->registerAnalyzer(std::make_unique<OpticalFlowAnalyzer>());
+    analyzer->registerAnalyzer(std::make_unique<BlurAnalyzer>());
+    analyzer->registerAnalyzer(std::make_unique<BrightnessAnalyzer>());
+    analyzer->registerAnalyzer(std::make_unique<ContrastAnalyzer>());
+    analyzer->registerAnalyzer(std::make_unique<BloomAnalyzer>());
+    analyzer->registerAnalyzer(std::make_unique<ShadowAnalyzer>());
+    analyzer->registerAnalyzer(std::make_unique<StereoOffsetAnalyzer>());
+    if (config.enableOcr) {
+        analyzer->registerAnalyzer(std::make_unique<OcrAnalyzer>());
+    }
+    spdlog::info("Registered {} analyzers", analyzer->analyzers().size());
+    return analyzer;
+}
+
+static int runCollectMode(const std::string& outputDir, const AppConfig& config) {
+    spdlog::info("Data collection mode: output={}", outputDir);
+
+    LatestFrameBuffer frameBuffer;
+    auto analyzer = createAnalyzer(config);
+    DxgiCapture capture(config);
+
+    DataCollector collector(outputDir);
+
+    capture.start(frameBuffer);
+    analyzer->start(frameBuffer);
+
+    int idleFrames = 0;
+    while (true) {
+        auto frame = frameBuffer.load();
+        if (!frame) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            idleFrames++;
+            if (idleFrames > 300) { // 3 seconds of no frames
+                spdlog::warn("No frames received, stopping collection");
+                break;
+            }
+            continue;
+        }
+        idleFrames = 0;
+
+        analyzer->waitForFrame();
+        AnalysisResult result = analyzer->getLatestResult();
+
+        if (!result.sceneConfidence.reliable) {
+            spdlog::warn("Frame {}: low scene confidence ({:.2f}), skipping",
+                         result.frameNumber, result.sceneConfidence.overall);
+            continue;
+        }
+
+        if (!collector.onFrame(result, frame->leftEye, frame->rightEye)) {
+            spdlog::info("Collection complete: {} frames written", collector.framesWritten());
+            break;
+        }
+
+        if (collector.framesWritten() % 10 == 0) {
+            spdlog::info("Collected {} frames...", collector.framesWritten());
+        }
+    }
+
+    capture.stop();
+    analyzer->stop();
+    spdlog::info("Collection finished: {} frames written to {}", collector.framesWritten(), outputDir);
+    return 0;
+}
+
 static void setupLogging() {
     try {
         auto fileSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("stereo_inspector.log", true);
@@ -60,34 +134,38 @@ static void setupLogging() {
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     setupLogging();
 
+    // Parse command line for --collect PATH
+    std::string collectDir;
+    {
+        int argc;
+        LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+        if (argv) {
+            for (int i = 1; i < argc; i++) {
+                std::wstring arg(argv[i]);
+                if (arg == L"--collect" && i + 1 < argc) {
+                    int len = WideCharToMultiByte(CP_UTF8, 0, argv[i + 1], -1, nullptr, 0, nullptr, nullptr);
+                    collectDir.resize(len - 1);
+                    WideCharToMultiByte(CP_UTF8, 0, argv[i + 1], -1, collectDir.data(), len, nullptr, nullptr);
+                    i++;
+                }
+            }
+            LocalFree(argv);
+        }
+    }
+
     AppConfig config = AppConfig::loadFromFile("config.json");
+
+    if (!collectDir.empty()) {
+        return runCollectMode(collectDir, config);
+    }
 
     LatestFrameBuffer frameBuffer;
     Overlay overlay;
     InputManager inputManager;
     StereoLogger logger(config.logging);
     ReportGenerator reportGen(config.logging);
-    AnalyzerPipeline analyzer(config);
     DxgiCapture capture(config);
-
-    analyzer.registerAnalyzer(std::make_unique<SsimAnalyzer>());
-    analyzer.registerAnalyzer(std::make_unique<PixelDiffAnalyzer>());
-    analyzer.registerAnalyzer(std::make_unique<HistogramAnalyzer>());
-    analyzer.registerAnalyzer(std::make_unique<EdgeAnalyzer>());
-    analyzer.registerAnalyzer(std::make_unique<OrbAnalyzer>());
-    analyzer.registerAnalyzer(std::make_unique<OpticalFlowAnalyzer>());
-    analyzer.registerAnalyzer(std::make_unique<BlurAnalyzer>());
-    analyzer.registerAnalyzer(std::make_unique<BrightnessAnalyzer>());
-    analyzer.registerAnalyzer(std::make_unique<ContrastAnalyzer>());
-    analyzer.registerAnalyzer(std::make_unique<BloomAnalyzer>());
-    analyzer.registerAnalyzer(std::make_unique<ShadowAnalyzer>());
-    analyzer.registerAnalyzer(std::make_unique<StereoOffsetAnalyzer>());
-
-    if (config.enableOcr) {
-        analyzer.registerAnalyzer(std::make_unique<OcrAnalyzer>());
-    }
-
-    spdlog::info("Registered {} analyzers", analyzer.analyzers().size());
+    auto analyzer = createAnalyzer(config);
 
     if (!overlay.initialize(hInstance, nCmdShow)) {
         spdlog::error("Failed to initialize overlay");
@@ -99,31 +177,31 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
         return 1;
     }
 
-    overlay.setResultCallback([&]() { return analyzer.getLatestResult(); });
-    overlay.setTimeCallback([&]() { return analyzer.getFrameTime(); });
+    overlay.setResultCallback([&]() { return analyzer->getLatestResult(); });
+    overlay.setTimeCallback([&]() { return analyzer->getFrameTime(); });
     overlay.setFrameCallback([&]() {
         auto frame = frameBuffer.load();
         if (frame) return frame->frame.clone();
         return cv::Mat();
     });
-    overlay.setHistoryCallback([&]() { return analyzer.getHistory(); });
+    overlay.setHistoryCallback([&]() { return analyzer->getHistory(); });
     overlay.setLayoutCallback([&]() { return capture.currentLayout(); });
     overlay.setSyncCallback([&]() {
         auto frame = frameBuffer.load();
         if (frame && !frame->leftEye.empty() && !frame->rightEye.empty()) {
-            analyzer.setBaseline(frame->leftEye, frame->rightEye);
+            analyzer->setBaseline(frame->leftEye, frame->rightEye);
         }
     });
     overlay.setClearBaselineCallback([&]() {
-        analyzer.clearBaseline();
+        analyzer->clearBaseline();
         spdlog::info("Baseline cleared via UI");
     });
     overlay.setConfigCallback([&](const CheckToggles& toggles) {
-        analyzer.setCheckToggles(toggles);
+        analyzer->setCheckToggles(toggles);
         spdlog::debug("Check toggles updated");
     });
     overlay.setGetConfigCallback([&]() {
-        return analyzer.getConfig().checks;
+        return analyzer->getConfig().checks;
     });
 
     int hotkeyId = 1;
@@ -178,7 +256,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     inputManager.registerHotkey(hotkeyId++, VK_F9, [&]() {
         auto frame = frameBuffer.load();
         if (frame && !frame->leftEye.empty() && !frame->rightEye.empty()) {
-            analyzer.setBaseline(frame->leftEye, frame->rightEye);
+            analyzer->setBaseline(frame->leftEye, frame->rightEye);
         }
     });
 
@@ -213,19 +291,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     }, ctrl);
 
     // Wire baseline captured callback → overlay sync feedback
-    analyzer.setOnBaselineCaptured([&](uint64_t frameNum, float confidence, const std::string& timestamp) {
+    analyzer->setOnBaselineCaptured([&](uint64_t frameNum, float confidence, const std::string& timestamp) {
         overlay.showSyncFeedback(frameNum, confidence, timestamp);
         spdlog::info("Stereo model captured: frame={}, confidence={:.2f}", frameNum, confidence);
     });
 
     // Wire baseline refused callback → overlay refused feedback
-    analyzer.setOnBaselineRefused([&](const std::string& reason) {
+    analyzer->setOnBaselineRefused([&](const std::string& reason) {
         overlay.showSyncRefused(reason);
         spdlog::warn("Baseline capture refused: {}", reason);
     });
 
     capture.start(frameBuffer);
-    analyzer.start(frameBuffer);
+    analyzer->start(frameBuffer);
 
     auto lastFrameTime = std::chrono::steady_clock::now();
     int frameCount = 0;
@@ -251,7 +329,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
         if (g_screenshotTrigger.exchange(0)) {
             auto frame = frameBuffer.load();
             if (frame && !frame->frame.empty()) {
-                auto result = analyzer.getLatestResult();
+                auto result = analyzer->getLatestResult();
                 logger.captureScreenshot(frame->frame, result);
             }
         }
@@ -259,13 +337,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
         if (g_recording && (frameCount % 30 == 0)) {
             auto frame = frameBuffer.load();
             if (frame && !frame->frame.empty()) {
-                auto result = analyzer.getLatestResult();
+                auto result = analyzer->getLatestResult();
                 logger.captureScreenshot(frame->frame, result);
             }
         }
 
         if (g_logging) {
-            auto result = analyzer.getLatestResult();
+            auto result = analyzer->getLatestResult();
             logger.logFrame(result);
         }
 
@@ -277,7 +355,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
             frameCount = 0;
             lastFrameTime = now;
 
-            FrameTime ft = analyzer.getFrameTime();
+            FrameTime ft = analyzer->getFrameTime();
             ft.fps = currentFps;
             ft.captureFps = captureFps;
         }
@@ -296,7 +374,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     spdlog::info("Shutting down...");
 
     capture.stop();
-    analyzer.stop();
+    analyzer->stop();
 
     if (g_logging) {
         logger.stop();
