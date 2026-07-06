@@ -117,7 +117,32 @@ nlohmann::json AppConfig::toJson() const {
             {"opticalFlowWarning", thresholds.opticalFlowWarning},
             {"opticalFlowFail", thresholds.opticalFlowFail},
             {"ocrMismatchWarning", thresholds.ocrMismatchWarning},
-            {"ocrMismatchFail", thresholds.ocrMismatchFail}
+            {"ocrMismatchFail", thresholds.ocrMismatchFail},
+            {"occlusionWarning", thresholds.occlusionWarning},
+            {"occlusionFail", thresholds.occlusionFail},
+            {"disparityInvalidWarning", thresholds.disparityInvalidWarning},
+            {"disparityInvalidFail", thresholds.disparityInvalidFail},
+            {"disparitySmoothnessWarning", thresholds.disparitySmoothnessWarning},
+            {"disparitySmoothnessFail", thresholds.disparitySmoothnessFail},
+            {"disparityVertAsymWarning", thresholds.disparityVertAsymWarning},
+            {"disparityVertAsymFail", thresholds.disparityVertAsymFail},
+            {"lightingAsymWarning", thresholds.lightingAsymWarning},
+            {"lightingAsymFail", thresholds.lightingAsymFail},
+            {"postProcessAsymWarning", thresholds.postProcessAsymWarning},
+            {"postProcessAsymFail", thresholds.postProcessAsymFail},
+            {"textureAsymWarning", thresholds.textureAsymWarning},
+            {"textureAsymFail", thresholds.textureAsymFail},
+            {"chromaticAsymWarning", thresholds.chromaticAsymWarning},
+            {"chromaticAsymFail", thresholds.chromaticAsymFail},
+            {"temporalFlickerWarning", thresholds.temporalFlickerWarning},
+            {"temporalFlickerFail", thresholds.temporalFlickerFail},
+            {"temporalStabilityWarning", thresholds.temporalStabilityWarning},
+            {"temporalStabilityFail", thresholds.temporalStabilityFail},
+            {"disparityStabilityWarning", thresholds.disparityStabilityWarning},
+            {"disparityStabilityFail", thresholds.disparityStabilityFail},
+            {"matchQualityWarning", thresholds.matchQualityWarning},
+            {"passThreshold", thresholds.passThreshold},
+            {"warningThreshold", thresholds.warningThreshold}
         }},
         {"logging", {
             {"csvPath", logging.csvPath},
@@ -178,6 +203,31 @@ AppConfig AppConfig::fromJson(const nlohmann::json& j) {
         th.opticalFlowFail = t.value("opticalFlowFail", th.opticalFlowFail);
         th.ocrMismatchWarning = t.value("ocrMismatchWarning", th.ocrMismatchWarning);
         th.ocrMismatchFail = t.value("ocrMismatchFail", th.ocrMismatchFail);
+        th.occlusionWarning = t.value("occlusionWarning", th.occlusionWarning);
+        th.occlusionFail = t.value("occlusionFail", th.occlusionFail);
+        th.disparityInvalidWarning = t.value("disparityInvalidWarning", th.disparityInvalidWarning);
+        th.disparityInvalidFail = t.value("disparityInvalidFail", th.disparityInvalidFail);
+        th.disparitySmoothnessWarning = t.value("disparitySmoothnessWarning", th.disparitySmoothnessWarning);
+        th.disparitySmoothnessFail = t.value("disparitySmoothnessFail", th.disparitySmoothnessFail);
+        th.disparityVertAsymWarning = t.value("disparityVertAsymWarning", th.disparityVertAsymWarning);
+        th.disparityVertAsymFail = t.value("disparityVertAsymFail", th.disparityVertAsymFail);
+        th.lightingAsymWarning = t.value("lightingAsymWarning", th.lightingAsymWarning);
+        th.lightingAsymFail = t.value("lightingAsymFail", th.lightingAsymFail);
+        th.postProcessAsymWarning = t.value("postProcessAsymWarning", th.postProcessAsymWarning);
+        th.postProcessAsymFail = t.value("postProcessAsymFail", th.postProcessAsymFail);
+        th.textureAsymWarning = t.value("textureAsymWarning", th.textureAsymWarning);
+        th.textureAsymFail = t.value("textureAsymFail", th.textureAsymFail);
+        th.chromaticAsymWarning = t.value("chromaticAsymWarning", th.chromaticAsymWarning);
+        th.chromaticAsymFail = t.value("chromaticAsymFail", th.chromaticAsymFail);
+        th.temporalFlickerWarning = t.value("temporalFlickerWarning", th.temporalFlickerWarning);
+        th.temporalFlickerFail = t.value("temporalFlickerFail", th.temporalFlickerFail);
+        th.temporalStabilityWarning = t.value("temporalStabilityWarning", th.temporalStabilityWarning);
+        th.temporalStabilityFail = t.value("temporalStabilityFail", th.temporalStabilityFail);
+        th.disparityStabilityWarning = t.value("disparityStabilityWarning", th.disparityStabilityWarning);
+        th.disparityStabilityFail = t.value("disparityStabilityFail", th.disparityStabilityFail);
+        th.matchQualityWarning = t.value("matchQualityWarning", th.matchQualityWarning);
+        th.passThreshold = t.value("passThreshold", th.passThreshold);
+        th.warningThreshold = t.value("warningThreshold", th.warningThreshold);
     }
     if (j.contains("logging")) {
         const auto& l = j["logging"];

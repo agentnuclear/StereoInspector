@@ -12,24 +12,24 @@ struct StereoRegion {
 };
 
 struct AnalysisThresholds {
-    double ssimWarning = 0.85;
-    double ssimFail = 0.70;
-    double pixelDiffWarning = 5.0;
-    double pixelDiffFail = 15.0;
-    double histogramWarning = 0.80;
-    double histogramFail = 0.60;
+    double ssimWarning = 0.88;
+    double ssimFail = 0.75;
+    double pixelDiffWarning = 3.0;
+    double pixelDiffFail = 8.0;
+    double histogramWarning = 0.85;
+    double histogramFail = 0.65;
     double edgeWarning = 0.80;
     double edgeFail = 0.60;
     double blurDeltaWarning = 3.0;
     double blurDeltaFail = 8.0;
-    double brightnessDeltaWarning = 0.10;
-    double brightnessDeltaFail = 0.25;
-    double contrastDeltaWarning = 0.15;
-    double contrastDeltaFail = 0.30;
-    double bloomWarning = 0.10;
-    double bloomFail = 0.25;
-    double shadowWarning = 0.10;
-    double shadowFail = 0.25;
+    double brightnessDeltaWarning = 0.05;
+    double brightnessDeltaFail = 0.15;
+    double contrastDeltaWarning = 0.05;
+    double contrastDeltaFail = 0.15;
+    double bloomWarning = 0.05;
+    double bloomFail = 0.15;
+    double shadowWarning = 0.05;
+    double shadowFail = 0.15;
     double stereoOffsetWarning = 10.0;
     double stereoOffsetFail = 30.0;
     int minFeatureMatches = 20;
@@ -37,6 +37,33 @@ struct AnalysisThresholds {
     double opticalFlowFail = 15.0;
     int ocrMismatchWarning = 2;
     int ocrMismatchFail = 5;
+
+    // Health score thresholds
+    double occlusionWarning = 0.15;
+    double occlusionFail = 0.30;
+    double disparityInvalidWarning = 0.20;
+    double disparityInvalidFail = 0.50;
+    double disparitySmoothnessWarning = 0.50;
+    double disparitySmoothnessFail = 0.20;
+    double disparityVertAsymWarning = 10.0;
+    double disparityVertAsymFail = 30.0;
+    double lightingAsymWarning = 0.05;
+    double lightingAsymFail = 0.15;
+    double postProcessAsymWarning = 0.15;
+    double postProcessAsymFail = 0.30;
+    double textureAsymWarning = 0.10;
+    double textureAsymFail = 0.25;
+    double chromaticAsymWarning = 0.05;
+    double chromaticAsymFail = 0.15;
+    double temporalFlickerWarning = 0.10;
+    double temporalFlickerFail = 0.30;
+    double temporalStabilityWarning = 0.70;
+    double temporalStabilityFail = 0.40;
+    double disparityStabilityWarning = 0.70;
+    double disparityStabilityFail = 0.40;
+    double matchQualityWarning = 0.30;
+    double passThreshold = 80.0;
+    double warningThreshold = 50.0;
 };
 
 struct LogConfig {

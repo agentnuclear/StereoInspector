@@ -1,4 +1,5 @@
 #include "StereoCorrespondence.h"
+#include "analysis/FeatureCache.h"
 #include <opencv2/imgproc.hpp>
 #include <opencv2/calib3d.hpp>
 #include <opencv2/features2d.hpp>
@@ -8,7 +9,6 @@
 struct StereoCorrespondence::Impl {
     cv::Ptr<cv::StereoSGBM> sgbm;
     cv::Ptr<cv::StereoBM> bm;
-    cv::Ptr<cv::ORB> orb;
 };
 
 StereoCorrespondence::StereoCorrespondence(const Config& config)
@@ -26,8 +26,6 @@ StereoCorrespondence::StereoCorrespondence(const Config& config)
     m_impl->bm->setUniquenessRatio(m_config.uniquenessRatio);
     m_impl->bm->setSpeckleWindowSize(m_config.speckleWindowSize);
     m_impl->bm->setSpeckleRange(m_config.speckleRange);
-
-    m_impl->orb = cv::ORB::create(1000);
 }
 
 StereoCorrespondence::~StereoCorrespondence() = default;
@@ -112,8 +110,7 @@ CorrespondenceResult StereoCorrespondence::compute(const cv::Mat& left, const cv
         // Sparse ORB features → dense disparity via interpolation
         std::vector<cv::KeyPoint> kpL, kpR;
         cv::Mat descL, descR;
-        m_impl->orb->detectAndCompute(leftGray, cv::Mat(), kpL, descL);
-        m_impl->orb->detectAndCompute(rightGray, cv::Mat(), kpR, descR);
+        FeatureCache::instance().getOrb(leftGray, rightGray, kpL, kpR, descL, descR, 1000);
         dispFloat = cv::Mat(leftGray.size(), CV_32F, -1.0f);
 
         if (!descL.empty() && !descR.empty() && kpL.size() >= 5 && kpR.size() >= 5) {

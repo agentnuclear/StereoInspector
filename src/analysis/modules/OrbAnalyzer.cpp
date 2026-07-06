@@ -1,8 +1,8 @@
 #include "OrbAnalyzer.h"
+#include "analysis/FeatureCache.h"
 #include <opencv2/imgproc.hpp>
 
 OrbAnalyzer::OrbAnalyzer() : BaseAnalyzer("ORB", true) {
-    m_orb = cv::ORB::create(500);
     m_matcher = cv::DescriptorMatcher::create(cv::DescriptorMatcher::BRUTEFORCE_HAMMING);
 }
 
@@ -20,8 +20,7 @@ void OrbAnalyzer::analyze(const cv::Mat& leftEye, const cv::Mat& rightEye, Analy
     std::vector<cv::KeyPoint> kpL, kpR;
     cv::Mat descL, descR;
 
-    m_orb->detectAndCompute(leftGray, cv::Mat(), kpL, descL);
-    m_orb->detectAndCompute(rightGray, cv::Mat(), kpR, descR);
+    FeatureCache::instance().getOrb(leftGray, rightGray, kpL, kpR, descL, descR, 500);
 
     if (descL.empty() || descR.empty()) {
         result.featureMatchCount = 0;
@@ -37,10 +36,8 @@ void OrbAnalyzer::analyze(const cv::Mat& leftEye, const cv::Mat& rightEye, Analy
     }
 
     double minDist = std::numeric_limits<double>::max();
-    double maxDist = 0;
     for (const auto& m : matches) {
         if (m.distance < minDist) minDist = m.distance;
-        if (m.distance > maxDist) maxDist = m.distance;
     }
 
     int goodCount = 0;

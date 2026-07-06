@@ -8,6 +8,5 @@ public:
     void analyze(const cv::Mat& leftEye, const cv::Mat& rightEye, AnalysisResult& result) override;
 
 private:
-    cv::Ptr<cv::ORB> m_orb;
     cv::Ptr<cv::DescriptorMatcher> m_matcher;
 };

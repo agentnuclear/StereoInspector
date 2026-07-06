@@ -1,4 +1,5 @@
 #include "Analyzer.h"
+#include "FeatureCache.h"
 #include "modules/TemporalAnalyzer.h"
 #include <opencv2/imgproc.hpp>
 #include <opencv2/features2d.hpp>
@@ -554,6 +555,9 @@ AnalysisResult AnalyzerPipeline::analyzeFrame(const cv::Mat& left, const cv::Mat
     AnalysisResult result;
     result.frameNumber = frameNum;
 
+    // Step 0: Update feature cache (frame number + resolution change detection)
+    FeatureCache::instance().newFrame(frameNum, left.rows, left.cols);
+
     // Step 1: Compute stereo correspondence
     CorrespondenceResult corr;
     if (m_impl->m_config.checks.correspondence) {
@@ -799,7 +803,7 @@ void AnalyzerPipeline::computeAsymmetry(const cv::Mat& left, const cv::Mat& warp
 }
 
 void AnalyzerPipeline::computeHealthScore(AnalysisResult& result) {
-    (void)m_impl->m_config.thresholds;
+    const auto& t = m_impl->m_config.thresholds;
     double score = 100.0;
     result.issues.clear();
 
@@ -827,38 +831,38 @@ void AnalyzerPipeline::computeHealthScore(AnalysisResult& result) {
     };
 
     // PRIMARY: Residual metrics (after alignment)
-    cn(result.residual.alignedSSIM, 0.88, 0.75, "AlignedSSIM", 0.20);
-    ck(result.residual.alignedPixDiffPercent, 3.0, 8.0, false, "AlignedPixDiff", 0.10);
-    ck(result.residual.alignedBrightnessDelta, 0.05, 0.15, false, "AlignedBright", 0.06);
-    cn(result.residual.alignedEdgeSimilarity, 0.80, 0.60, "AlignedEdges", 0.08);
-    cn(result.residual.alignedHistogramCorrelation, 0.85, 0.65, "AlignedHistogram", 0.06);
-    ck(result.residual.occlusionRatio, 0.15, 0.30, false, "Occlusion", 0.04);
+    cn(result.residual.alignedSSIM, t.ssimWarning, t.ssimFail, "AlignedSSIM", 0.20);
+    ck(result.residual.alignedPixDiffPercent, t.pixelDiffWarning, t.pixelDiffFail, false, "AlignedPixDiff", 0.10);
+    ck(result.residual.alignedBrightnessDelta, t.brightnessDeltaWarning, t.brightnessDeltaFail, false, "AlignedBright", 0.06);
+    cn(result.residual.alignedEdgeSimilarity, t.edgeWarning, t.edgeFail, "AlignedEdges", 0.08);
+    cn(result.residual.alignedHistogramCorrelation, t.histogramWarning, t.histogramFail, "AlignedHistogram", 0.06);
+    ck(result.residual.occlusionRatio, t.occlusionWarning, t.occlusionFail, false, "Occlusion", 0.04);
 
     // SECONDARY: Disparity health
     if (result.disparity.disparityRange > 0.1) {
-        ck(result.disparity.invalidRatio, 0.20, 0.50, false, "DispInvalid", 0.05);
-        cn(result.disparity.smoothness, 0.50, 0.20, "DispSmooth", 0.04);
-        ck(result.disparity.verticalAsymmetry, 10.0, 30.0, false, "DispVertAsym", 0.03);
+        ck(result.disparity.invalidRatio, t.disparityInvalidWarning, t.disparityInvalidFail, false, "DispInvalid", 0.05);
+        cn(result.disparity.smoothness, t.disparitySmoothnessWarning, t.disparitySmoothnessFail, "DispSmooth", 0.04);
+        ck(result.disparity.verticalAsymmetry, t.disparityVertAsymWarning, t.disparityVertAsymFail, false, "DispVertAsym", 0.03);
     }
 
     // TERTIARY: Asymmetry defects
-    ck(result.asymmetry.lightingAsymmetry, 0.05, 0.15, false, "LightAsym", 0.05);
-    ck(result.asymmetry.bloomAsymmetry, 0.05, 0.15, false, "BloomAsym", 0.04);
-    ck(result.asymmetry.shadowAsymmetry, 0.05, 0.15, false, "ShadowAsym", 0.04);
-    ck(result.asymmetry.postProcessAsymmetry, 0.15, 0.30, false, "PPAsym", 0.03);
-    ck(result.asymmetry.textureAsymmetry, 0.10, 0.25, false, "TextureAsym", 0.03);
-    ck(result.asymmetry.chromaticAsymmetry, 0.05, 0.15, false, "ChromeAsym", 0.03);
-    ck(result.asymmetry.geometryMissing, 0.05, 0.15, false, "GeoMissing", 0.03);
-    ck(result.asymmetry.contrastAsymmetry, 0.05, 0.15, false, "ContrastAsym", 0.02);
+    ck(result.asymmetry.lightingAsymmetry, t.lightingAsymWarning, t.lightingAsymFail, false, "LightAsym", 0.05);
+    ck(result.asymmetry.bloomAsymmetry, t.bloomWarning, t.bloomFail, false, "BloomAsym", 0.04);
+    ck(result.asymmetry.shadowAsymmetry, t.shadowWarning, t.shadowFail, false, "ShadowAsym", 0.04);
+    ck(result.asymmetry.postProcessAsymmetry, t.postProcessAsymWarning, t.postProcessAsymFail, false, "PPAsym", 0.03);
+    ck(result.asymmetry.textureAsymmetry, t.textureAsymWarning, t.textureAsymFail, false, "TextureAsym", 0.03);
+    ck(result.asymmetry.chromaticAsymmetry, t.chromaticAsymWarning, t.chromaticAsymFail, false, "ChromeAsym", 0.03);
+    ck(result.asymmetry.geometryMissing, t.occlusionWarning, t.occlusionFail, false, "GeoMissing", 0.03);
+    ck(result.asymmetry.contrastAsymmetry, t.contrastDeltaWarning, t.contrastDeltaFail, false, "ContrastAsym", 0.02);
 
     // TEMPORAL
-    ck(result.temporal.flickerScore, 0.10, 0.30, false, "Flicker", 0.03);
-    cn(result.temporal.temporalStability, 0.70, 0.40, "TempStability", 0.03);
-    cn(result.temporal.disparityStability, 0.70, 0.40, "DispStability", 0.02);
+    ck(result.temporal.flickerScore, t.temporalFlickerWarning, t.temporalFlickerFail, false, "Flicker", 0.03);
+    cn(result.temporal.temporalStability, t.temporalStabilityWarning, t.temporalStabilityFail, "TempStability", 0.03);
+    cn(result.temporal.disparityStability, t.disparityStabilityWarning, t.disparityStabilityFail, "DispStability", 0.02);
 
     // Match quality penalty
-    if (result.matchQuality.confidence > 0.0 && result.matchQuality.confidence < 0.3) {
-        score -= (0.3 - result.matchQuality.confidence) / 0.3 * 20.0;
+    if (result.matchQuality.confidence > 0.0 && result.matchQuality.confidence < t.matchQualityWarning) {
+        score -= (t.matchQualityWarning - result.matchQuality.confidence) / t.matchQualityWarning * 20.0;
         result.issues.push_back("LowCorrConfidence (" +
                                 std::to_string(result.matchQuality.confidence) + ")");
     }
@@ -866,8 +870,8 @@ void AnalyzerPipeline::computeHealthScore(AnalysisResult& result) {
     score = std::max(0.0, std::min(100.0, score));
     result.stereoHealthScore = score;
 
-    if (score >= 80.0) result.status = FrameStatus::PASS;
-    else if (score >= 50.0) result.status = FrameStatus::WARNING;
+    if (score >= t.passThreshold) result.status = FrameStatus::PASS;
+    else if (score >= t.warningThreshold) result.status = FrameStatus::WARNING;
     else result.status = FrameStatus::FAIL;
 }
 

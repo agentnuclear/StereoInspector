@@ -1,4 +1,5 @@
 #include "Visualizer.h"
+#include "analysis/FeatureCache.h"
 #include <opencv2/imgproc.hpp>
 #include <opencv2/features2d.hpp>
 #include <opencv2/highgui.hpp>
@@ -339,11 +340,9 @@ cv::Mat Visualizer::renderFeatureMatch(const cv::Mat& left, const cv::Mat& right
         rightGray = right;
     }
 
-    auto orb = cv::ORB::create(500);
     std::vector<cv::KeyPoint> kpL, kpR;
     cv::Mat descL, descR;
-    orb->detectAndCompute(leftGray, cv::Mat(), kpL, descL);
-    orb->detectAndCompute(rightGray, cv::Mat(), kpR, descR);
+    FeatureCache::instance().getOrb(leftGray, rightGray, kpL, kpR, descL, descR, 500);
 
     cv::Mat output;
     if (!descL.empty() && !descR.empty()) {
@@ -483,15 +482,11 @@ cv::Mat Visualizer::renderDisparityHeatmap(const AnalysisResult& result) const {
         dispVis = cv::Mat(dm.disparityMap.size(), CV_8UC3, cv::Scalar(0, 0, 0));
     }
 
-    // Apply valid mask: darken invalid pixels
+    // Apply valid mask: darken invalid pixels (vectorized)
     if (!dm.validMap.empty()) {
-        for (int y = 0; y < dispVis.rows; y++) {
-            for (int x = 0; x < dispVis.cols; x++) {
-                if (!dm.validMap.at<uchar>(y, x)) {
-                    dispVis.at<cv::Vec3b>(y, x) = cv::Vec3b(40, 40, 50);
-                }
-            }
-        }
+        cv::Mat invalidMask;
+        cv::bitwise_not(dm.validMap, invalidMask);
+        dispVis.setTo(cv::Scalar(40, 40, 50), invalidMask);
     }
 
     // Overlay stats

@@ -23,6 +23,8 @@ set(SOURCES
     src/analysis/IStereoAnalyzer.cpp
     src/analysis/Analyzer.h
     src/analysis/Analyzer.cpp
+    src/analysis/FeatureCache.h
+    src/analysis/FeatureCache.cpp
     src/analysis/IssueClassifier.h
     src/analysis/IssueClassifier.cpp
     src/analysis/RegionMerger.h
