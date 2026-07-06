@@ -7,5 +7,6 @@ public:
     void analyze(const cv::Mat& leftEye, const cv::Mat& rightEye, AnalysisResult& result) override;
 
 private:
-    static double computeSSIM(const cv::Mat& img1, const cv::Mat& img2);
+    static double computeSSIM(const cv::Mat& img1, const cv::Mat& img2,
+                              cv::InputArray validMask = cv::noArray());
 };

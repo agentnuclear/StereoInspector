@@ -3,7 +3,8 @@
 
 SsimAnalyzer::SsimAnalyzer() : BaseAnalyzer("SSIM", true) {}
 
-double SsimAnalyzer::computeSSIM(const cv::Mat& img1, const cv::Mat& img2) {
+double SsimAnalyzer::computeSSIM(const cv::Mat& img1, const cv::Mat& img2,
+                                  cv::InputArray validMask) {
     const double C1 = 6.5025, C2 = 58.5225;
 
     cv::Mat img1f, img2f;
@@ -42,8 +43,8 @@ double SsimAnalyzer::computeSSIM(const cv::Mat& img1, const cv::Mat& img2) {
     cv::multiply(t3, t4, den);
     cv::divide(num, den, ssim_map);
 
-    cv::Scalar mssim = cv::mean(ssim_map);
-    return (mssim[0] + mssim[1] + mssim[2]) / 3.0;
+    cv::Scalar mssim = cv::mean(ssim_map, validMask);
+    return mssim[0];
 }
 
 void SsimAnalyzer::analyze(const cv::Mat& leftEye, const cv::Mat& rightEye, AnalysisResult& result) {
@@ -52,5 +53,9 @@ void SsimAnalyzer::analyze(const cv::Mat& leftEye, const cv::Mat& rightEye, Anal
     cv::Mat rightGray = (!result.rightGray.empty()) ? result.rightGray
         : (rightEye.channels() == 3 ? (cv::cvtColor(rightEye, rightGray, cv::COLOR_BGR2GRAY), rightGray) : rightEye.clone());
 
-    result.ssim = computeSSIM(leftGray, rightGray);
+    cv::Mat validMask;
+    if (!result.disparity.validMap.empty()) {
+        cv::resize(result.disparity.validMap, validMask, leftGray.size(), 0, 0, cv::INTER_NEAREST);
+    }
+    result.ssim = computeSSIM(leftGray, rightGray, validMask);
 }
