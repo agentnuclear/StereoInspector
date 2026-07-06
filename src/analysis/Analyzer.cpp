@@ -564,8 +564,15 @@ AnalysisResult AnalyzerPipeline::analyzeFrame(const cv::Mat& left, const cv::Mat
         corr = m_correspondence.compute(left, right);
     }
 
-    // Step 2: Run registered analyzers on ALIGNED (warped) images
+    // Step 2: Pre-compute grayscale once for all analyzers (saves ~26 cvtColor calls per frame)
     const cv::Mat& alignedRight = corr.success ? corr.warpedRight : right;
+    if (left.channels() == 3) {
+        cv::cvtColor(left, result.leftGray, cv::COLOR_BGR2GRAY);
+        cv::cvtColor(alignedRight, result.rightGray, cv::COLOR_BGR2GRAY);
+    } else {
+        left.copyTo(result.leftGray);
+        alignedRight.copyTo(result.rightGray);
+    }
 
     for (auto& analyzer : m_impl->m_analyzers) {
         if (!analyzer->enabled()) continue;
@@ -681,14 +688,10 @@ void AnalyzerPipeline::computeAsymmetry(const cv::Mat& left, const cv::Mat& warp
     if (left.empty() || warpedRight.empty()) return;
     const auto& chk = m_impl->m_config.checks;
 
-    cv::Mat lGray, rGray;
-    if (left.channels() == 3) {
-        cv::cvtColor(left, lGray, cv::COLOR_BGR2GRAY);
-        cv::cvtColor(warpedRight, rGray, cv::COLOR_BGR2GRAY);
-    } else {
-        lGray = left;
-        rGray = warpedRight;
-    }
+    cv::Mat lGray = (!result.leftGray.empty()) ? result.leftGray
+        : (left.channels() == 3 ? (cv::cvtColor(left, lGray, cv::COLOR_BGR2GRAY), lGray) : left);
+    cv::Mat rGray = (!result.rightGray.empty()) ? result.rightGray
+        : (warpedRight.channels() == 3 ? (cv::cvtColor(warpedRight, rGray, cv::COLOR_BGR2GRAY), rGray) : warpedRight);
 
     // Valid pixels: non-occluded
     cv::Mat valid;

@@ -334,6 +334,11 @@ struct AnalysisResult {
 
     std::chrono::steady_clock::time_point timestamp;
     int64_t frameNumber = 0;
+    StereoLayout layout;
+
+    // Pre-computed grayscale images (set by AnalyzerPipeline)
+    cv::Mat leftGray;
+    cv::Mat rightGray;
 };
 
 // ------ Backward compat: CaptureFrame, FrameTime, MetricHistory ------
