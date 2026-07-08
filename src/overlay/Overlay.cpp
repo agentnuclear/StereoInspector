@@ -188,7 +188,7 @@ void Overlay::applyStyle() {
     style.ScrollbarSize = 12.0f;
     style.GrabMinSize = 8.0f;
 
-    style.WindowMinSize = ImVec2(240, 80);
+    style.WindowMinSize = ImVec2(520, 360);
     style.WindowMenuButtonPosition = ImGuiDir_None;
 
     // Dark theme with higher contrast
@@ -257,10 +257,18 @@ bool Overlay::initImGui() {
     io.LogFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange | ImGuiConfigFlags_NavNoCaptureKeyboard;
 
+    // Load Segoe UI for a native Windows look; fall back to default if unavailable
+    ImFont* font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 15.0f, nullptr, io.Fonts->GetGlyphRangesDefault());
+    if (!font) {
+        io.Fonts->AddFontDefault();
+    }
+
     HDC hdc = GetDC(m_hwnd);
     float dpi = (float)GetDeviceCaps(hdc, LOGPIXELSY);
     ReleaseDC(m_hwnd, hdc);
-    io.FontGlobalScale = dpi / 96.0f;
+    if (dpi > 96.0f && font) {
+        io.FontGlobalScale = dpi / 96.0f;
+    }
 
     applyStyle();
 
@@ -475,99 +483,103 @@ void Overlay::renderSyncFeedback() {
 }
 
 // ===========================================================================
-// NEW: Root window with app-style layout
+// Root window with app-style layout
 // ===========================================================================
 void Overlay::renderMainWindow() {
     ImGuiIO& io = ImGui::GetIO();
 
-    // Fullscreen background window
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(io.DisplaySize);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    // Clamp window to display bounds so it never goes off-screen
+    ImVec2 winPos = ImGui::GetWindowPos();
+    ImVec2 winSize = ImGui::GetWindowSize();
+    if (winPos.x < 0 || winPos.y < 0 || winPos.x + winSize.x > io.DisplaySize.x || winPos.y + winSize.y > io.DisplaySize.y) {
+        winPos.x = std::max(0.0f, std::min(winPos.x, io.DisplaySize.x - winSize.x));
+        winPos.y = std::max(0.0f, std::min(winPos.y, io.DisplaySize.y - winSize.y));
+        ImGui::SetWindowPos(winPos);
+    }
+
+    // Resizable, movable window — initial size 70% of display on first run
+    ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x * 0.70f, io.DisplaySize.y * 0.75f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.05f, io.DisplaySize.y * 0.05f), ImGuiCond_FirstUseEver);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
-    ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
-                             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse |
                              ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
                              ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoSavedSettings;
 
-    ImGui::Begin("MainWindow", nullptr, flags);
-    ImGui::PopStyleVar(3);
+    ImGui::Begin("Stereo Inspector", nullptr, flags);
+    ImGui::PopStyleVar(1);
 
     // Menu bar
-    float cursorYBeforeMenu = ImGui::GetCursorPosY();
     renderMenuBar();
-    float menuBarHeight = ImGui::GetCursorPosY() - cursorYBeforeMenu;
-    float statusBarHeight = 24.0f;
-    float contentY = menuBarHeight;
 
-    // Toolbar row
+    // Layout uses window-relative coordinates
+    ImVec2 winSz = ImGui::GetWindowSize();
+    float statusBarHeight = 24.0f;
+    float toolbarH = 34.0f;
+    float contentTop = ImGui::GetCursorPosY();
+    float contentH = winSz.y - contentTop - toolbarH - statusBarHeight;
+
+    // Toolbar row — spans full window width
     {
         AnalysisResult result;
         FrameTime ft;
         if (m_getResult) result = m_getResult();
         if (m_getTime) ft = m_getTime();
 
-        ImGui::SetCursorScreenPos(ImVec2(0, contentY));
-        float toolbarH = 34.0f;
+        ImGui::SetCursorPos(ImVec2(0, contentTop));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 4));
-        ImGui::BeginChild("Toolbar", ImVec2(io.DisplaySize.x, toolbarH), false, ImGuiWindowFlags_NoScrollbar);
+        ImGui::BeginChild("Toolbar", ImVec2(winSz.x, toolbarH), false, ImGuiWindowFlags_NoScrollbar);
         renderToolbar(result, ft);
         ImGui::EndChild();
         ImGui::PopStyleVar();
-        contentY += toolbarH;
     }
 
     // Content split: Hub panel (left) | Viz panel (right)
-    {
-        float contentH = io.DisplaySize.y - contentY - statusBarHeight;
-        if (contentH > 0) {
-            float splitterW = 6.0f;
-            float hubW = std::max(280.0f, io.DisplaySize.x * m_splitterRatio);
-            float vizW = io.DisplaySize.x - hubW - splitterW;
+    float splitterW = 6.0f;
+    float hubW = std::max(280.0f, winSz.x * m_splitterRatio);
+    float vizW = winSz.x - hubW - splitterW;
 
-            // Hub panel
-            ImGui::SetCursorScreenPos(ImVec2(0, contentY));
-            ImGui::BeginChild("HubPanel", ImVec2(hubW, contentH), true);
+    if (contentH > 0) {
+        // Hub panel
+        ImGui::SetCursorPos(ImVec2(0, contentTop + toolbarH));
+        ImGui::BeginChild("HubPanel", ImVec2(hubW, contentH), true);
 
-            AnalysisResult result;
-            FrameTime ft;
-            MetricHistory history;
-            if (m_getResult) result = m_getResult();
-            if (m_getTime) ft = m_getTime();
-            if (m_getHistory) history = m_getHistory();
+        AnalysisResult result;
+        FrameTime ft;
+        MetricHistory history;
+        if (m_getResult) result = m_getResult();
+        if (m_getTime) ft = m_getTime();
+        if (m_getHistory) history = m_getHistory();
 
-            renderHubPanel(result, ft, history);
-            ImGui::EndChild();
+        renderHubPanel(result, ft, history);
+        ImGui::EndChild();
 
-            // Splitter
-            ImGui::SameLine(0, 0);
-            ImGui::SetCursorScreenPos(ImVec2(hubW, contentY));
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.15f, 0.18f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30f, 0.65f, 1.00f, 0.30f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.30f, 0.65f, 1.00f, 0.50f));
+        // Splitter
+        ImGui::SameLine(0, 0);
+        ImGui::SetCursorPos(ImVec2(hubW, contentTop + toolbarH));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.15f, 0.18f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30f, 0.65f, 1.00f, 0.30f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.30f, 0.65f, 1.00f, 0.50f));
 
-            ImGui::Button("##splitter", ImVec2(splitterW, contentH));
-            if (ImGui::IsItemActive() || ImGui::IsItemHovered()) {
-                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
-            }
-            if (ImGui::IsItemActive()) {
-                m_splitterRatio += io.MouseDelta.x / io.DisplaySize.x;
-                m_splitterRatio = std::max(0.20f, std::min(0.60f, m_splitterRatio));
-            }
-
-            ImGui::PopStyleColor(3);
-            ImGui::PopStyleVar();
-
-            // Viz panel
-            ImGui::SameLine(0, 0);
-            ImGui::SetCursorScreenPos(ImVec2(hubW + splitterW, contentY));
-            ImGui::BeginChild("VizPanel", ImVec2(vizW, contentH), true);
-            renderVizPanel();
-            ImGui::EndChild();
+        ImGui::Button("##splitter", ImVec2(splitterW, contentH));
+        if (ImGui::IsItemActive() || ImGui::IsItemHovered()) {
+            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
         }
+        if (ImGui::IsItemActive()) {
+            m_splitterRatio += io.MouseDelta.x / winSz.x;
+            m_splitterRatio = std::max(0.20f, std::min(0.60f, m_splitterRatio));
+        }
+
+        ImGui::PopStyleColor(3);
+        ImGui::PopStyleVar();
+
+        // Viz panel
+        ImGui::SameLine(0, 0);
+        ImGui::SetCursorPos(ImVec2(hubW + splitterW, contentTop + toolbarH));
+        ImGui::BeginChild("VizPanel", ImVec2(vizW, contentH), true);
+        renderVizPanel();
+        ImGui::EndChild();
     }
 
     // Status bar
@@ -577,9 +589,9 @@ void Overlay::renderMainWindow() {
         if (m_getResult) result = m_getResult();
         if (m_getTime) ft = m_getTime();
 
-        ImGui::SetCursorScreenPos(ImVec2(0, io.DisplaySize.y - statusBarHeight));
+        ImGui::SetCursorPos(ImVec2(0, contentTop + toolbarH + contentH));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 2));
-        ImGui::BeginChild("StatusBar", ImVec2(io.DisplaySize.x, statusBarHeight), false, ImGuiWindowFlags_NoScrollbar);
+        ImGui::BeginChild("StatusBar", ImVec2(winSz.x, statusBarHeight), false, ImGuiWindowFlags_NoScrollbar);
         renderStatusBar(result, ft);
         ImGui::EndChild();
         ImGui::PopStyleVar();
