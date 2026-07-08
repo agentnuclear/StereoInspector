@@ -217,9 +217,9 @@ void Overlay::applyStyle() {
     colors[ImGuiCol_Button]                 = ImVec4(0.18f, 0.18f, 0.22f, 0.94f);
     colors[ImGuiCol_ButtonHovered]          = ImVec4(0.25f, 0.25f, 0.32f, 0.94f);
     colors[ImGuiCol_ButtonActive]           = ImVec4(0.30f, 0.30f, 0.38f, 1.00f);
-    colors[ImGuiCol_Header]                 = ImVec4(0.18f, 0.18f, 0.24f, 0.80f);
-    colors[ImGuiCol_HeaderHovered]          = ImVec4(0.24f, 0.24f, 0.32f, 0.90f);
-    colors[ImGuiCol_HeaderActive]           = ImVec4(0.28f, 0.28f, 0.38f, 1.00f);
+    colors[ImGuiCol_Header]                 = ImVec4(0.20f, 0.45f, 0.75f, 0.55f);
+    colors[ImGuiCol_HeaderHovered]          = ImVec4(0.25f, 0.55f, 0.85f, 0.70f);
+    colors[ImGuiCol_HeaderActive]           = ImVec4(0.30f, 0.60f, 0.90f, 0.85f);
     colors[ImGuiCol_Separator]              = ImVec4(0.25f, 0.25f, 0.30f, 0.50f);
     colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.40f, 0.40f, 0.50f, 0.60f);
     colors[ImGuiCol_SeparatorActive]        = ImVec4(0.50f, 0.50f, 0.60f, 1.00f);
@@ -1549,13 +1549,7 @@ void Overlay::renderFrame() {
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        renderSyncFeedback();
-
-        if (m_visible.load()) {
-            renderMainWindow();
-        }
-
-        // Update visualization texture (always, even if hidden, for quick resume)
+        // Update visualization texture before UI so viz panel always has current frame
         if (m_getFrame && m_getResult) {
             cv::Mat frame = m_getFrame();
             if (!frame.empty()) {
@@ -1576,6 +1570,12 @@ void Overlay::renderFrame() {
                 cv::Mat viz = m_visualizer.render(frame, left, right, res, m_vizMode.load(), &hist, m_selectedIssueIndex);
                 updateVizTexture(viz);
             }
+        }
+
+        renderSyncFeedback();
+
+        if (m_visible.load()) {
+            renderMainWindow();
         }
 
         ImGui::Render();
