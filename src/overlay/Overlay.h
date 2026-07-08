@@ -167,6 +167,15 @@ private:
     bool m_draggingSplitter = false;
 
     int m_selectedIssueIndex = -1;
+
+    // Viz zoom state
+    float m_vizZoom = 1.0f;
+    float m_vizPanX = 0.0f;
+    float m_vizPanY = 0.0f;
+
+    // Issues filter
+    char m_issueFilter[64] = "";
+
     ComPtr<ID3D11ShaderResourceView> m_vizSRV;
     ComPtr<ID3D11Texture2D> m_vizTexture;
     int m_vizTexWidth = 0;

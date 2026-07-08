@@ -81,6 +81,9 @@ void Overlay::resetLayout() {
     }
     m_selectedIssueIndex = -1;
     m_splitterRatio = 0.35f;
+    m_vizZoom = 1.0f;
+    m_vizPanX = 0.0f;
+    m_vizPanY = 0.0f;
     spdlog::info("Layout reset");
 }
 
@@ -309,6 +312,29 @@ void Overlay::renderMiniGraph(const char* label, const HistoryBuffer& data,
         dl->AddPolyline(fill.data(), (int)fill.size(), IM_COL32(255, 255, 255, 30), ImDrawFlags_Closed, 1.0f);
         dl->AddPolyline(pts.data(), (int)pts.size(), lineColor, 0, 2.0f);
         dl->AddCircleFilled(pts.back(), 3.0f, lineColor);
+
+        // Hover: find nearest data point to mouse X
+        ImVec2 mousePos = ImGui::GetMousePos();
+        bool hovered = (mousePos.x >= pos.x && mousePos.x <= pos.x + graphWidth &&
+                        mousePos.y >= pos.y && mousePos.y <= pos.y + graphHeight);
+        if (hovered) {
+            float frac = (mousePos.x - pos.x) / graphWidth;
+            int hoverIdx = (int)(frac * (n - 1) + 0.5f);
+            hoverIdx = std::clamp(hoverIdx, 0, (int)n - 1);
+            float hx = pts[hoverIdx].x;
+            float hy = pts[hoverIdx].y;
+
+            // Vertical crosshair
+            dl->AddLine(ImVec2(hx, pos.y), ImVec2(hx, pos.y + graphHeight),
+                        IM_COL32(255, 255, 255, 100), 1.0f);
+            // Highlight point
+            dl->AddCircleFilled(ImVec2(hx, hy), 4.0f, IM_COL32(255, 255, 255, 220));
+
+            // Tooltip
+            ImGui::BeginTooltip();
+            ImGui::Text("%s: %.3f (idx %d)", label, data[hoverIdx], hoverIdx);
+            ImGui::EndTooltip();
+        }
     }
     dl->PopClipRect();
     double cur = data.back();
@@ -789,20 +815,62 @@ void Overlay::renderVizPanel() {
     ImVec2 avail = ImGui::GetContentRegionAvail();
 
     if (m_vizSRV) {
-        float aspect = (float)m_vizTexWidth / (float)std::max(m_vizTexHeight, 1);
-        float imgW = avail.x;
-        float imgH = imgW / aspect;
-        if (imgH > avail.y - 24.0f) {
-            imgH = avail.y - 24.0f;
-            imgW = imgH * aspect;
+        // Zoom controls toolbar
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 2));
+        if (ImGui::Button("Fit", ImVec2(40, 20))) {
+            m_vizZoom = 1.0f;
+            m_vizPanX = 0.0f;
+            m_vizPanY = 0.0f;
         }
-        // Center image
-        float offsetX = std::max(0.0f, (avail.x - imgW) * 0.5f);
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
-        ImGui::Image((ImTextureID)m_vizSRV.Get(), ImVec2(imgW, imgH));
-
+        ImGui::SameLine();
+        if (ImGui::Button("+", ImVec2(28, 20))) { m_vizZoom = std::min(10.0f, m_vizZoom * 1.25f); }
+        ImGui::SameLine();
+        if (ImGui::Button("-", ImVec2(28, 20))) { m_vizZoom = std::max(0.1f, m_vizZoom / 1.25f); }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(100);
+        ImGui::SliderFloat("##zoom", &m_vizZoom, 0.1f, 10.0f, "%.1fx");
+        ImGui::SameLine();
         const char* modeName = VisualizationModeName(m_vizMode.load());
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.8f, 1.0f), "Mode: %s", modeName);
+        ImGui::PopStyleVar();
+
+        // Image display area with zoom/pan support
+        float baseW = (float)m_vizTexWidth;
+        float baseH = (float)m_vizTexHeight;
+        float imgW = baseW * m_vizZoom;
+        float imgH = baseH * m_vizZoom;
+
+        // Pan with right mouse drag
+        if (ImGui::IsMouseDragging(ImGuiMouseButton_Right) && ImGui::IsWindowHovered()) {
+            m_vizPanX += ImGui::GetIO().MouseDelta.x;
+            m_vizPanY += ImGui::GetIO().MouseDelta.y;
+        }
+
+        // Scroll wheel zoom
+        if (ImGui::IsWindowHovered()) {
+            float wheel = ImGui::GetIO().MouseWheel;
+            if (wheel != 0.0f) {
+                m_vizZoom = std::clamp(m_vizZoom * (wheel > 0 ? 1.1f : 0.9f), 0.1f, 10.0f);
+            }
+        }
+
+        // Clamp pan so image doesn't drift off too far
+        float maxPanX = std::max(0.0f, (imgW - avail.x) * 0.5f);
+        float maxPanY = std::max(0.0f, (imgH - (avail.y - 24.0f)) * 0.5f);
+        m_vizPanX = std::clamp(m_vizPanX, -maxPanX, maxPanX);
+        m_vizPanY = std::clamp(m_vizPanY, -maxPanY, maxPanY);
+
+        // Center the image in available space, apply pan
+        float offsetX = std::max(0.0f, (avail.x - imgW) * 0.5f) + m_vizPanX;
+        float offsetY = std::max(0.0f, (avail.y - 24.0f - imgH) * 0.5f) + m_vizPanY;
+
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + offsetY);
+        ImGui::Image((ImTextureID)m_vizSRV.Get(), ImVec2(imgW, imgH));
+
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Scroll to zoom, right-drag to pan");
+        }
     } else {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No visualization data");
     }
@@ -1293,6 +1361,20 @@ void Overlay::renderIssuesTab(const AnalysisResult& result) {
     if (validCount > 0) {
         ImGui::Dummy(ImVec2(0, 6));
         ImGui::TextColored(ImVec4(1.0f,0.6f,0.2f,1.0f), "Region Issues (%d)", validCount);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+        ImGui::InputTextWithHint("##issueFilter", "Filter by type...", m_issueFilter, sizeof(m_issueFilter));
+
+        // Count matching issues
+        int matchCount = 0;
+        for (auto& iss : result.detectedIssues) {
+            if (iss.isInvalidRegion) continue;
+            if (m_issueFilter[0] && !strstr(IssueTypeName(iss.type), m_issueFilter)) continue;
+            matchCount++;
+        }
+        if (matchCount == 0) {
+            ImGui::TextColored(ImVec4(0.5f,0.5f,0.5f,1.0f), "No issues match filter.");
+        }
 
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 8));
         float availH = ImGui::GetContentRegionAvail().y;
@@ -1302,6 +1384,7 @@ void Overlay::renderIssuesTab(const AnalysisResult& result) {
         for (int i = 0; i < (int)result.detectedIssues.size(); i++) {
             const auto& iss = result.detectedIssues[i];
             if (iss.isInvalidRegion) continue;
+            if (m_issueFilter[0] && !strstr(IssueTypeName(iss.type), m_issueFilter)) continue;
 
             bool sel = (i == m_selectedIssueIndex);
 
