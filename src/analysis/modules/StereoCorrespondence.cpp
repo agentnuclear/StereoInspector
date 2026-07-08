@@ -171,7 +171,8 @@ CorrespondenceResult StereoCorrespondence::compute(const cv::Mat& left, const cv
     if (!result.disparityMap.validMask.empty()) {
         cv::bitwise_not(result.disparityMap.validMask, result.occlusionMask);
     }
-    // Also include large warping inconsistencies
+    // Also include large warping inconsistencies (high threshold to catch only
+    // genuine occlusion / depth-boundary artifacts, not real stereo differences)
     if (!result.warpedRight.empty()) {
         cv::Mat wLeft, wRight;
         if (left.channels() == 3) {
@@ -184,7 +185,7 @@ CorrespondenceResult StereoCorrespondence::compute(const cv::Mat& left, const cv
         cv::Mat diff;
         cv::absdiff(wLeft, wRight, diff);
         cv::Mat warpOcc;
-        cv::threshold(diff, warpOcc, 40, 255, cv::THRESH_BINARY);
+        cv::threshold(diff, warpOcc, 60, 255, cv::THRESH_BINARY);
         cv::bitwise_or(result.occlusionMask, warpOcc, result.occlusionMask);
     }
 

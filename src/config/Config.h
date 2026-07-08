@@ -66,9 +66,9 @@ struct AnalysisThresholds {
     double warningThreshold = 50.0;
 
     // Issue detection thresholds
-    int diffThreshold = 40;        // pixel diff threshold (0-255) — higher = fewer false positives
-    int minIssueArea = 200;        // minimum connected-component area in pixels
-    double minIssueConfidence = 0.50;  // minimum classifier confidence to report
+    int diffThreshold = 20;        // pixel diff threshold (0-255) — lower = more sensitive to subtle differences
+    int minIssueArea = 100;        // minimum connected-component area in pixels
+    double minIssueConfidence = 0.30;  // minimum classifier confidence to report
 };
 
 struct LogConfig {
