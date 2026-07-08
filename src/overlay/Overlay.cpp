@@ -100,6 +100,8 @@ bool Overlay::createWindow(HINSTANCE hInstance) {
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
+    wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+    wc.hIconSm = LoadIcon(nullptr, IDI_APPLICATION);
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = nullptr;
     wc.lpszClassName = "StereoInspectorOverlay";
@@ -115,7 +117,7 @@ bool Overlay::createWindow(HINSTANCE hInstance) {
     int virtLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
     int virtTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
     m_hwnd = CreateWindowEx(
-        WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
+        WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_APPWINDOW,
         "StereoInspectorOverlay", "Stereo Inspector",
         WS_POPUP, virtLeft, virtTop, m_screenWidth, m_screenHeight,
         nullptr, nullptr, hInstance, this
@@ -1599,6 +1601,9 @@ LRESULT CALLBACK Overlay::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam)) return true;
 
     switch (msg) {
+        case WM_CLOSE:
+            PostQuitMessage(0);
+            return 0;
         case WM_NCHITTEST: {
             return HTCLIENT;
         }
