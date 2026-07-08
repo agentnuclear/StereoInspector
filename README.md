@@ -112,33 +112,34 @@ Best optimized coefficients from a 210-sample multi-source dataset. These improv
 ## Classifier Calibration & Real VR Capture
 
 > **⚠️ Important:** The classifier currently uses heuristic coefficients tuned on synthetic data. To achieve calibrated, trustworthy confidence percentages — where "87% confidence" actually means P(correct) ≈ 0.87 — the system needs **real VR capture data** with ground-truth labels.
-
-The synthetic data generator and optimizer provide a strong foundation, but the definitive calibration requires:
-1. Capturing 100+ frames from real VR applications (via `--collect` mode)
-2. Manually labeling each detected issue with its correct type
-3. Re-running `optimize_classifier.py` against the real dataset
-
-This is the single most impactful improvement remaining for the project. See [devdoc.md](devdoc.md) and [nextstep.md](nextstep.md) for details.
+> 
+> The data collection pipeline is fully built (`--collect` mode outputs JSONL with all feature vectors), but labeling each detected issue's correct type across hundreds of frames is time-intensive. This remains the primary bottleneck for classifier quality. If you have a representative gameplay dataset, running `--collect` and labeling even 50–100 frames would significantly improve the prediction coefficients.
+> 
+> See [devdoc.md](devdoc.md) and [nextstep.md](nextstep.md) for details.
 
 ---
 
-## Current Status: 62/100 — Improving Prototype
+## Current Status: 70/100 — Feature-Complete Prototype
 
-**8 critical bugs from the initial audit are fixed.** The correspondence-first approach is correct, and the Diff Ov view with colored bounding boxes helps developers spot stereo defects. Recent improvements include:
+The UI overhaul (Phase 1–4) is complete: resizable main window, menu bar, toolbar, status bar, tabbed hub panel, zoom/pan for the viz viewport, custom dark theme, and all dialogs (Settings, Keyboard Shortcuts, About). The overlay now has a proper app-style window with taskbar presence and working Alt+F4.
 
+Recent improvements include:
+
+- Full app-style layout with resizable main window, menu bar, toolbar, status bar, tabbed hub panel (Summary/Status/Metrics/Issues/Graphs)
+- Viz zoom/pan (scroll-wheel zoom, right-drag pan, Fit button, 0.1×–10× slider)
+- Issues filter text input + mini-graph hover crosshair with tooltip
+- Custom dark theme (Segoe UI 15px font), Settings/Keyboard Shortcuts/About dialogs
+- Fixed diffThreshold/occlusion mask conflict that prevented spatial issue detection (zero boxes on diff overlay)
 - Configurable detection thresholds (diffThreshold, minIssueArea, minIssueConfidence)
 - FeatureCache (ORB computed once per frame instead of 3-5×)
 - Pixel-wise confidence weighting for SSIM and pixel diff
 - Grayscale conversion cache (saves ~26 cvtColor calls per frame)
 - Headless data collection mode (`--collect`)
 - Synthetic data generator + Python optimizer for classifier calibration
-- Capture FPS tracking (fixed dead variable)
-- Tesseract DLL auto-deployment
-- CheckToggles (32 per-check enable/disable booleans)
-- Config-driven health score thresholds
+- Capture FPS tracking, Tesseract DLL auto-deployment, CheckToggles (32 toggles)
 
 ### Remaining Issues
-- Classifier coefficients need real VR data for calibration (see above)
+- Classifier coefficients need real VR data with ground-truth labels for calibration (bottleneck: manual labeling effort)
 - No GPU acceleration — all analysis runs on CPU
 - Limited test coverage
 - No CI/CD pipeline
