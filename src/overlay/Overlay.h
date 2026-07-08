@@ -32,6 +32,9 @@ public:
     using ClearBaselineCallback = std::function<void()>;
     using ConfigCallback = std::function<void(const CheckToggles&)>;
     using GetConfigCallback = std::function<CheckToggles()>;
+    using GetAppConfigCallback = std::function<AppConfig()>;
+    using SetAppConfigCallback = std::function<void(const AppConfig&)>;
+    using ExportReportCallback = std::function<void()>;
 
     void setResultCallback(ResultCallback resultFn);
     void setTimeCallback(TimeCallback timeFn);
@@ -42,6 +45,9 @@ public:
     void setClearBaselineCallback(ClearBaselineCallback clearFn);
     void setConfigCallback(ConfigCallback cb);
     void setGetConfigCallback(GetConfigCallback cb);
+    void setGetAppConfigCallback(GetAppConfigCallback cb);
+    void setSetAppConfigCallback(SetAppConfigCallback cb);
+    void setExportReportCallback(ExportReportCallback cb);
     void setVisualizationMode(VisualizationMode mode);
     void setVisible(bool visible);
     void setFrozen(bool frozen);
@@ -64,20 +70,29 @@ private:
     bool createD3D11Device();
     bool createSwapChain();
     bool initImGui();
+    void applyStyle();
 
-    // Consolidated UI
-    void renderWindows();
-    void renderSyncFeedback();
-    void renderHubWindow(const AnalysisResult& result, const FrameTime& ft, const MetricHistory& history);
-    void renderVisualizationWindow();
+    // Root window with menu + toolbar + panels + status bar
+    void renderMainWindow();
+    void renderMenuBar();
+    void renderToolbar(const AnalysisResult& result, const FrameTime& ft);
+    void renderStatusBar(const AnalysisResult& result, const FrameTime& ft);
+
+    // Content panels
+    void renderHubPanel(const AnalysisResult& result, const FrameTime& ft, const MetricHistory& history);
+    void renderVizPanel();
 
     // Hub tabs
     void renderSummaryTab(const AnalysisResult& result, const FrameTime& ft);
     void renderStatusTab(const AnalysisResult& result, const FrameTime& ft);
     void renderMetricsTab(const AnalysisResult& result);
     void renderIssuesTab(const AnalysisResult& result);
-    void renderChecksTab();
     void renderGraphsTab(const MetricHistory& history);
+
+    // Modal dialogs
+    void renderSettingsDialog();
+    void renderHotkeyDialog();
+    void renderAboutDialog();
 
     // Shared UI helpers
     void renderModeButtons(VisualizationMode currentMode);
@@ -87,6 +102,7 @@ private:
                          float graphWidth, float graphHeight,
                          float minVal, float maxVal,
                          unsigned int lineColor);
+    void renderSyncFeedback();
     void updateVizTexture(const cv::Mat& image);
     void cleanupD3D();
 
@@ -118,6 +134,9 @@ private:
     ClearBaselineCallback m_doClearBaseline;
     ConfigCallback m_updateChecks;
     GetConfigCallback m_getChecks;
+    GetAppConfigCallback m_getAppConfig;
+    SetAppConfigCallback m_setAppConfig;
+    ExportReportCallback m_exportReport;
 
     struct SyncFeedbackDisplay {
         bool show = false;
@@ -134,6 +153,18 @@ private:
         std::string reason;
     };
     SyncRefusedDisplay m_syncRefused;
+
+    // Dialog state
+    bool m_showSettings = false;
+    bool m_showHotkeys = false;
+    bool m_showAbout = false;
+
+    // Hub tab tracking
+    int m_selectedHubTab = 0;
+
+    // Splitter state
+    float m_splitterRatio = 0.35f;
+    bool m_draggingSplitter = false;
 
     int m_selectedIssueIndex = -1;
     ComPtr<ID3D11ShaderResourceView> m_vizSRV;

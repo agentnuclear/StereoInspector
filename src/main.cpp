@@ -203,6 +203,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     overlay.setGetConfigCallback([&]() {
         return analyzer->getConfig().checks;
     });
+    overlay.setGetAppConfigCallback([&]() -> AppConfig {
+        return config;
+    });
+    overlay.setSetAppConfigCallback([&](const AppConfig& newConfig) {
+        config = newConfig;
+        spdlog::info("App config updated via settings dialog");
+    });
+    overlay.setExportReportCallback([&]() {
+        auto result = analyzer->getLatestResult();
+        std::vector<AnalysisResult> results = {result};
+        reportGen.generate(results, {});
+        spdlog::info("Report exported");
+    });
 
     int hotkeyId = 1;
     inputManager.registerHotkey(hotkeyId++, VK_F1, [&]() {

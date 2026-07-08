@@ -49,6 +49,9 @@ void Overlay::setSyncCallback(SyncCallback syncFn) { m_doSync = std::move(syncFn
 void Overlay::setClearBaselineCallback(ClearBaselineCallback clearFn) { m_doClearBaseline = std::move(clearFn); }
 void Overlay::setConfigCallback(ConfigCallback cb) { m_updateChecks = std::move(cb); }
 void Overlay::setGetConfigCallback(GetConfigCallback cb) { m_getChecks = std::move(cb); }
+void Overlay::setGetAppConfigCallback(GetAppConfigCallback cb) { m_getAppConfig = std::move(cb); }
+void Overlay::setSetAppConfigCallback(SetAppConfigCallback cb) { m_setAppConfig = std::move(cb); }
+void Overlay::setExportReportCallback(ExportReportCallback cb) { m_exportReport = std::move(cb); }
 void Overlay::setVisualizationMode(VisualizationMode mode) { m_vizMode = mode; }
 void Overlay::setCaptureSafe(bool safe) { m_captureSafe = safe; }
 bool Overlay::isCaptureSafe() const { return m_captureSafe.load(); }
@@ -77,6 +80,7 @@ void Overlay::resetLayout() {
         std::remove(ImGui::GetIO().IniFilename);
     }
     m_selectedIssueIndex = -1;
+    m_splitterRatio = 0.35f;
     spdlog::info("Layout reset");
 }
 
@@ -157,6 +161,91 @@ bool Overlay::createSwapChain() {
     return true;
 }
 
+void Overlay::applyStyle() {
+    ImGuiStyle& style = ImGui::GetStyle();
+
+    style.WindowRounding = 6.0f;
+    style.FrameRounding = 4.0f;
+    style.GrabRounding = 4.0f;
+    style.ScrollbarRounding = 4.0f;
+    style.TabRounding = 4.0f;
+    style.ChildRounding = 4.0f;
+    style.PopupRounding = 4.0f;
+
+    style.WindowBorderSize = 1.0f;
+    style.FrameBorderSize = 0.0f;
+    style.PopupBorderSize = 1.0f;
+    style.TabBorderSize = 0.0f;
+
+    style.WindowPadding = ImVec2(8, 8);
+    style.FramePadding = ImVec2(6, 4);
+    style.ItemSpacing = ImVec2(6, 4);
+    style.ItemInnerSpacing = ImVec2(4, 4);
+    style.IndentSpacing = 16.0f;
+    style.ScrollbarSize = 12.0f;
+    style.GrabMinSize = 8.0f;
+
+    style.WindowMinSize = ImVec2(240, 80);
+    style.WindowMenuButtonPosition = ImGuiDir_None;
+
+    // Dark theme with higher contrast
+    ImVec4* colors = style.Colors;
+    colors[ImGuiCol_Text]                   = ImVec4(0.92f, 0.92f, 0.95f, 1.00f);
+    colors[ImGuiCol_TextDisabled]           = ImVec4(0.50f, 0.50f, 0.55f, 1.00f);
+    colors[ImGuiCol_WindowBg]               = ImVec4(0.08f, 0.08f, 0.10f, 0.94f);
+    colors[ImGuiCol_ChildBg]                = ImVec4(0.10f, 0.10f, 0.12f, 0.94f);
+    colors[ImGuiCol_PopupBg]                = ImVec4(0.10f, 0.10f, 0.13f, 0.95f);
+    colors[ImGuiCol_Border]                 = ImVec4(0.20f, 0.20f, 0.25f, 0.50f);
+    colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_FrameBg]                = ImVec4(0.14f, 0.14f, 0.17f, 0.94f);
+    colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.20f, 0.20f, 0.25f, 0.94f);
+    colors[ImGuiCol_FrameBgActive]          = ImVec4(0.25f, 0.25f, 0.30f, 1.00f);
+    colors[ImGuiCol_TitleBg]                = ImVec4(0.06f, 0.06f, 0.08f, 1.00f);
+    colors[ImGuiCol_TitleBgActive]          = ImVec4(0.10f, 0.10f, 0.13f, 1.00f);
+    colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.08f, 0.08f, 0.10f, 0.75f);
+    colors[ImGuiCol_MenuBarBg]              = ImVec4(0.10f, 0.10f, 0.13f, 0.95f);
+    colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.10f, 0.10f, 0.12f, 0.90f);
+    colors[ImGuiCol_ScrollbarGrab]          = ImVec4(0.25f, 0.25f, 0.30f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrabHovered]   = ImVec4(0.35f, 0.35f, 0.40f, 0.90f);
+    colors[ImGuiCol_ScrollbarGrabActive]    = ImVec4(0.45f, 0.45f, 0.50f, 1.00f);
+    colors[ImGuiCol_CheckMark]              = ImVec4(0.30f, 0.65f, 1.00f, 1.00f);
+    colors[ImGuiCol_SliderGrab]             = ImVec4(0.30f, 0.65f, 1.00f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive]       = ImVec4(0.40f, 0.75f, 1.00f, 1.00f);
+    colors[ImGuiCol_Button]                 = ImVec4(0.18f, 0.18f, 0.22f, 0.94f);
+    colors[ImGuiCol_ButtonHovered]          = ImVec4(0.25f, 0.25f, 0.32f, 0.94f);
+    colors[ImGuiCol_ButtonActive]           = ImVec4(0.30f, 0.30f, 0.38f, 1.00f);
+    colors[ImGuiCol_Header]                 = ImVec4(0.18f, 0.18f, 0.24f, 0.80f);
+    colors[ImGuiCol_HeaderHovered]          = ImVec4(0.24f, 0.24f, 0.32f, 0.90f);
+    colors[ImGuiCol_HeaderActive]           = ImVec4(0.28f, 0.28f, 0.38f, 1.00f);
+    colors[ImGuiCol_Separator]              = ImVec4(0.25f, 0.25f, 0.30f, 0.50f);
+    colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.40f, 0.40f, 0.50f, 0.60f);
+    colors[ImGuiCol_SeparatorActive]        = ImVec4(0.50f, 0.50f, 0.60f, 1.00f);
+    colors[ImGuiCol_ResizeGrip]             = ImVec4(0.30f, 0.30f, 0.40f, 0.30f);
+    colors[ImGuiCol_ResizeGripHovered]      = ImVec4(0.40f, 0.40f, 0.50f, 0.50f);
+    colors[ImGuiCol_ResizeGripActive]       = ImVec4(0.50f, 0.50f, 0.60f, 0.80f);
+    colors[ImGuiCol_Tab]                    = ImVec4(0.14f, 0.14f, 0.18f, 0.90f);
+    colors[ImGuiCol_TabHovered]             = ImVec4(0.22f, 0.22f, 0.30f, 0.94f);
+    colors[ImGuiCol_TabActive]              = ImVec4(0.20f, 0.20f, 0.28f, 1.00f);
+    colors[ImGuiCol_TabUnfocused]           = ImVec4(0.10f, 0.10f, 0.14f, 0.90f);
+    colors[ImGuiCol_TabUnfocusedActive]     = ImVec4(0.16f, 0.16f, 0.22f, 1.00f);
+    // Docking colors not available in non-docking branch
+    colors[ImGuiCol_PlotLines]              = ImVec4(0.60f, 0.60f, 0.70f, 1.00f);
+    colors[ImGuiCol_PlotLinesHovered]       = ImVec4(0.80f, 0.80f, 1.00f, 1.00f);
+    colors[ImGuiCol_PlotHistogram]          = ImVec4(0.30f, 0.65f, 1.00f, 1.00f);
+    colors[ImGuiCol_PlotHistogramHovered]   = ImVec4(0.50f, 0.75f, 1.00f, 1.00f);
+    colors[ImGuiCol_TableHeaderBg]          = ImVec4(0.14f, 0.14f, 0.18f, 1.00f);
+    colors[ImGuiCol_TableBorderStrong]      = ImVec4(0.25f, 0.25f, 0.30f, 1.00f);
+    colors[ImGuiCol_TableBorderLight]       = ImVec4(0.20f, 0.20f, 0.25f, 0.70f);
+    colors[ImGuiCol_TableRowBg]             = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_TableRowBgAlt]          = ImVec4(1.00f, 1.00f, 1.00f, 0.03f);
+    colors[ImGuiCol_TextSelectedBg]         = ImVec4(0.30f, 0.65f, 1.00f, 0.35f);
+    colors[ImGuiCol_DragDropTarget]         = ImVec4(1.00f, 1.00f, 0.00f, 0.90f);
+    colors[ImGuiCol_NavHighlight]           = ImVec4(0.30f, 0.65f, 1.00f, 1.00f);
+    colors[ImGuiCol_NavWindowingHighlight]  = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
+    colors[ImGuiCol_NavWindowingDimBg]      = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
+    colors[ImGuiCol_ModalWindowDimBg]       = ImVec4(0.10f, 0.10f, 0.12f, 0.55f);
+}
+
 bool Overlay::initImGui() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -164,18 +253,13 @@ bool Overlay::initImGui() {
     io.IniFilename = "stereo_inspector_layout.ini";
     io.LogFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange | ImGuiConfigFlags_NavNoCaptureKeyboard;
+
     HDC hdc = GetDC(m_hwnd);
     float dpi = (float)GetDeviceCaps(hdc, LOGPIXELSY);
     ReleaseDC(m_hwnd, hdc);
     io.FontGlobalScale = dpi / 96.0f;
-    ImGui::StyleColorsDark();
 
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 8.0f;
-    style.FrameRounding = 4.0f;
-    style.WindowBorderSize = 0.0f;
-    style.WindowMinSize = ImVec2(240, 80);
-    style.WindowMenuButtonPosition = ImGuiDir_None;
+    applyStyle();
 
     if (!ImGui_ImplWin32_Init(m_hwnd)) return false;
     if (!ImGui_ImplDX11_Init(m_d3dDevice.Get(), m_d3dContext.Get())) return false;
@@ -193,7 +277,7 @@ void Overlay::cleanupD3D() {
 }
 
 // ---------------------------------------------------------------------------
-// Mini graph helper (unchanged)
+// Mini graph helper
 // ---------------------------------------------------------------------------
 void Overlay::renderMiniGraph(const char* label, const HistoryBuffer& data,
                                float graphWidth, float graphHeight,
@@ -235,14 +319,13 @@ void Overlay::renderMiniGraph(const char* label, const HistoryBuffer& data,
 void Overlay::renderGraphPanel(const MetricHistory& history) {
     float aw = ImGui::GetContentRegionAvail().x;
     float gw = (aw - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
-    float gh = 65.0f;
+    float gh = 60.0f;
     renderMiniGraph("Health", history.healthScore, gw, gh, 0.0f, 100.0f, IM_COL32(76, 175, 80, 220));
     ImGui::SameLine();
     renderMiniGraph("SSIM", history.ssim, gw, gh, 0.0f, 1.0f, IM_COL32(33, 150, 243, 220));
     renderMiniGraph("Disp", history.disparityMean, gw, gh, 0.0f, 200.0f, IM_COL32(255, 152, 0, 220));
     ImGui::SameLine();
     renderMiniGraph("Bright", history.brightnessDelta, gw, gh, 0.0f, 1.0f, IM_COL32(156, 39, 176, 220));
-    // Temporal metrics row
     renderMiniGraph("Stability", history.temporalStability, gw, gh, 0.0f, 1.0f, IM_COL32(0, 230, 200, 220));
     ImGui::SameLine();
     renderMiniGraph("AlignSSIM", history.alignmentSSIM, gw, gh, 0.0f, 1.0f, IM_COL32(100, 200, 255, 220));
@@ -262,7 +345,7 @@ void Overlay::renderModeButtons(VisualizationMode currentMode) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.44f, 0.73f, 0.8f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.17f, 0.52f, 0.82f, 0.9f));
         }
-        if (ImGui::Button(label, ImVec2(bw, 26))) { m_vizMode = m; }
+        if (ImGui::Button(label, ImVec2(bw, 24))) { m_vizMode = m; }
         if (act) ImGui::PopStyleColor(2);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s (%s)", label, tip);
     };
@@ -322,7 +405,7 @@ void Overlay::updateVizTexture(const cv::Mat& image) {
 }
 
 // ---------------------------------------------------------------------------
-// Sync feedback popup (rendered once per frame, not inside a window)
+// Sync feedback popup (center overlay, not inside a window)
 // ---------------------------------------------------------------------------
 void Overlay::renderSyncFeedback() {
     ImGuiIO& io = ImGui::GetIO();
@@ -331,9 +414,12 @@ void Overlay::renderSyncFeedback() {
         float alpha = std::min(1.0f, m_syncFeedback.timer / 2.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.3f, 1.0f));
+        ImVec2 center = ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.4f);
+        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         ImGui::Begin("###SyncCaptured", nullptr,
                      ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar |
-                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_NoInputs);
         ImGui::Text("Stereo Model Captured");
         ImGui::Text("Frame: %llu  Conf: %.2f", (unsigned long long)m_syncFeedback.frameNumber, m_syncFeedback.confidence);
         ImGui::Text("Time: %s", m_syncFeedback.timestamp.c_str());
@@ -347,9 +433,12 @@ void Overlay::renderSyncFeedback() {
         float alpha = std::min(1.0f, m_syncRefused.timer / 2.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.2f, 1.0f));
+        ImVec2 center = ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.4f);
+        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         ImGui::Begin("###SyncRefused", nullptr,
                      ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar |
-                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_NoInputs);
         ImGui::Text("Baseline Capture Refused");
         ImGui::TextWrapped("%s", m_syncRefused.reason.c_str());
         ImGui::End();
@@ -360,38 +449,315 @@ void Overlay::renderSyncFeedback() {
 }
 
 // ===========================================================================
-// Consolidated UI rendering
+// NEW: Root window with app-style layout
 // ===========================================================================
-void Overlay::renderWindows() {
-    if (!m_visible.load()) return;
+void Overlay::renderMainWindow() {
+    ImGuiIO& io = ImGui::GetIO();
 
-    ImGui_ImplDX11_NewFrame();
-    ImGui_ImplWin32_NewFrame();
-    ImGui::NewFrame();
+    // Fullscreen background window
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
-    renderSyncFeedback();
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+                             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                             ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+                             ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoSavedSettings;
 
-    AnalysisResult result;
-    FrameTime ft;
-    MetricHistory history;
-    if (m_getResult) result = m_getResult();
-    if (m_getTime) ft = m_getTime();
-    if (m_getHistory) history = m_getHistory();
+    ImGui::Begin("MainWindow", nullptr, flags);
+    ImGui::PopStyleVar(3);
 
-    renderHubWindow(result, ft, history);
-    renderVisualizationWindow();
+    // Menu bar
+    float cursorYBeforeMenu = ImGui::GetCursorPosY();
+    renderMenuBar();
+    float menuBarHeight = ImGui::GetCursorPosY() - cursorYBeforeMenu;
+    float statusBarHeight = 24.0f;
+    float contentY = menuBarHeight;
 
-    ImGui::Render();
+    // Toolbar row
+    {
+        AnalysisResult result;
+        FrameTime ft;
+        if (m_getResult) result = m_getResult();
+        if (m_getTime) ft = m_getTime();
+
+        ImGui::SetCursorScreenPos(ImVec2(0, contentY));
+        float toolbarH = 34.0f;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 4));
+        ImGui::BeginChild("Toolbar", ImVec2(io.DisplaySize.x, toolbarH), false, ImGuiWindowFlags_NoScrollbar);
+        renderToolbar(result, ft);
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+        contentY += toolbarH;
+    }
+
+    // Content split: Hub panel (left) | Viz panel (right)
+    {
+        float contentH = io.DisplaySize.y - contentY - statusBarHeight;
+        if (contentH > 0) {
+            float splitterW = 6.0f;
+            float hubW = std::max(280.0f, io.DisplaySize.x * m_splitterRatio);
+            float vizW = io.DisplaySize.x - hubW - splitterW;
+
+            // Hub panel
+            ImGui::SetCursorScreenPos(ImVec2(0, contentY));
+            ImGui::BeginChild("HubPanel", ImVec2(hubW, contentH), true);
+
+            AnalysisResult result;
+            FrameTime ft;
+            MetricHistory history;
+            if (m_getResult) result = m_getResult();
+            if (m_getTime) ft = m_getTime();
+            if (m_getHistory) history = m_getHistory();
+
+            renderHubPanel(result, ft, history);
+            ImGui::EndChild();
+
+            // Splitter
+            ImGui::SameLine(0, 0);
+            ImGui::SetCursorScreenPos(ImVec2(hubW, contentY));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.15f, 0.18f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30f, 0.65f, 1.00f, 0.30f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.30f, 0.65f, 1.00f, 0.50f));
+
+            ImGui::Button("##splitter", ImVec2(splitterW, contentH));
+            if (ImGui::IsItemActive() || ImGui::IsItemHovered()) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+            }
+            if (ImGui::IsItemActive()) {
+                m_splitterRatio += io.MouseDelta.x / io.DisplaySize.x;
+                m_splitterRatio = std::max(0.20f, std::min(0.60f, m_splitterRatio));
+            }
+
+            ImGui::PopStyleColor(3);
+            ImGui::PopStyleVar();
+
+            // Viz panel
+            ImGui::SameLine(0, 0);
+            ImGui::SetCursorScreenPos(ImVec2(hubW + splitterW, contentY));
+            ImGui::BeginChild("VizPanel", ImVec2(vizW, contentH), true);
+            renderVizPanel();
+            ImGui::EndChild();
+        }
+    }
+
+    // Status bar
+    {
+        AnalysisResult result;
+        FrameTime ft;
+        if (m_getResult) result = m_getResult();
+        if (m_getTime) ft = m_getTime();
+
+        ImGui::SetCursorScreenPos(ImVec2(0, io.DisplaySize.y - statusBarHeight));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 2));
+        ImGui::BeginChild("StatusBar", ImVec2(io.DisplaySize.x, statusBarHeight), false, ImGuiWindowFlags_NoScrollbar);
+        renderStatusBar(result, ft);
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+    }
+
+    ImGui::End();
+
+    // Modal dialogs (rendered outside main window)
+    if (m_showSettings) renderSettingsDialog();
+    if (m_showHotkeys) renderHotkeyDialog();
+    if (m_showAbout) renderAboutDialog();
 }
 
 // ---------------------------------------------------------------------------
-// Hub Window – tabbed main interface
+// Menu Bar
 // ---------------------------------------------------------------------------
-void Overlay::renderHubWindow(const AnalysisResult& result, const FrameTime& ft, const MetricHistory& history) {
-    ImGui::SetNextWindowSize(ImVec2(380, 320), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Stereo Inspector", nullptr, ImGuiWindowFlags_NoScrollbar);
+void Overlay::renderMenuBar() {
+    if (ImGui::BeginMenuBar()) {
+        if (ImGui::BeginMenu("File")) {
+            if (ImGui::MenuItem("Export Report", "Ctrl+R")) {
+                if (m_exportReport) m_exportReport();
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Exit", "Alt+F4")) {
+                PostQuitMessage(0);
+            }
+            ImGui::EndMenu();
+        }
 
-    if (ImGui::BeginTabBar("HubTabs")) {
+        if (ImGui::BeginMenu("View")) {
+            ImGui::MenuItem("Settings", "Ctrl+,", &m_showSettings);
+
+            ImGui::Separator();
+            ImGui::Text("Visualization Mode");
+            ImGui::Separator();
+
+            auto vizItem = [&](VisualizationMode mode, const char* label, const char* shortcut) {
+                bool active = (m_vizMode.load() == mode);
+                if (ImGui::MenuItem(label, shortcut, &active)) {
+                    m_vizMode = mode;
+                }
+            };
+
+            vizItem(VisualizationMode::Normal, "Normal", "F1");
+            vizItem(VisualizationMode::StereoDifferenceOverlay, "Diff Overlay", "F3");
+            vizItem(VisualizationMode::DifferenceHeatmap, "Heatmap", "F4");
+            vizItem(VisualizationMode::EdgeComparison, "Edge Comparison", "Ctrl+F1");
+            vizItem(VisualizationMode::FeatureMatchOverlay, "Feature Match", "Ctrl+F2");
+            vizItem(VisualizationMode::HistogramView, "Histogram", "Ctrl+F3");
+            vizItem(VisualizationMode::BlurMap, "Blur Map", "Ctrl+F4");
+            vizItem(VisualizationMode::BlinkLeft, "Blink Left", "Ctrl+F5");
+            vizItem(VisualizationMode::BlinkRight, "Blink Right", "Ctrl+F6");
+            vizItem(VisualizationMode::DisparityHeatmap, "Disparity Heatmap", "Ctrl+F7");
+
+            ImGui::Separator();
+            if (ImGui::MenuItem("Reset Layout")) {
+                resetLayout();
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Tools")) {
+            if (ImGui::MenuItem("Settings...", "Ctrl+,")) {
+                m_showSettings = true;
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Help")) {
+            if (ImGui::MenuItem("Keyboard Shortcuts...", "F1")) {
+                m_showHotkeys = true;
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("About Stereo Inspector...")) {
+                m_showAbout = true;
+            }
+            ImGui::EndMenu();
+        }
+
+        ImGui::EndMenuBar();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Toolbar
+// ---------------------------------------------------------------------------
+void Overlay::renderToolbar(const AnalysisResult& result, const FrameTime&) {
+    bool hasBase = result.stereoModel.active;
+
+    // Left side: action buttons
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.58f, 0.25f, 0.8f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.17f, 0.68f, 0.30f, 0.9f));
+    if (ImGui::Button(hasBase ? "Resync##tb" : "Sync##tb", ImVec2(80, 24))) {
+        if (m_doSync) m_doSync();
+    }
+    ImGui::PopStyleColor(2);
+
+    ImGui::SameLine();
+    if (hasBase) {
+        if (ImGui::Button("Clear##tb", ImVec2(60, 24))) {
+            if (m_doClearBaseline) m_doClearBaseline();
+        }
+        ImGui::SameLine();
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.15f, 0.20f, 0.9f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.22f, 0.22f, 0.28f, 0.9f));
+
+    if (ImGui::Button("Screenshot##tb", ImVec2(90, 24))) {
+        // Trigger screenshot via F6 equivalent
+        PostMessage(m_hwnd, WM_KEYDOWN, VK_F6, 0);
+        PostMessage(m_hwnd, WM_KEYUP, VK_F6, 0);
+    }
+    ImGui::SameLine();
+
+    if (ImGui::Button("Frozen##tb", ImVec2(70, 24))) {
+        m_frozen = !m_frozen;
+    }
+    ImGui::SameLine();
+
+    if (ImGui::Button("Layout##tb", ImVec2(70, 24))) {
+        resetLayout();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reset window layout to defaults");
+
+    // Vertical separator
+    ImGui::SameLine();
+    ImVec2 sepPos = ImGui::GetCursorScreenPos();
+    float sepHeight = ImGui::GetContentRegionAvail().y;
+    ImGui::GetWindowDrawList()->AddLine(
+        ImVec2(sepPos.x, sepPos.y),
+        ImVec2(sepPos.x, sepPos.y + sepHeight),
+        ImGui::GetColorU32(ImGuiCol_Separator));
+    ImGui::SameLine();
+    ImGui::Dummy(ImVec2(1, 0));
+
+    // Viz mode buttons inline on toolbar
+    renderModeButtons(m_vizMode.load());
+    ImGui::PopStyleColor(2);
+}
+
+// ---------------------------------------------------------------------------
+// Status Bar
+// ---------------------------------------------------------------------------
+void Overlay::renderStatusBar(const AnalysisResult& result, const FrameTime& ft) {
+    float aw = ImGui::GetContentRegionAvail().x;
+    float x = 0;
+
+    // Status
+    ImVec4 sc;
+    const char* statusLabel = "";
+    switch (result.stereoStatus) {
+        case StereoStatus::SAFE:    sc = ImVec4(0.3f, 0.85f, 0.3f, 1.0f); statusLabel = "SAFE"; break;
+        case StereoStatus::WARNING: sc = ImVec4(1.0f, 0.6f, 0.0f, 1.0f); statusLabel = "WARN"; break;
+        case StereoStatus::DESYNC:  sc = ImVec4(1.0f, 0.2f, 0.2f, 1.0f); statusLabel = "DESYNC"; break;
+        case StereoStatus::UNKNOWN: sc = ImVec4(0.5f, 0.5f, 0.5f, 1.0f); statusLabel = "?"; break;
+    }
+    ImGui::TextColored(sc, "%s", statusLabel);
+    x += 50;
+
+    // Integrity
+    ImGui::SameLine(x); ImGui::Text("Integrity: %.0f", result.stereoIntegrityScore);
+    x += 100;
+
+    // FPS
+    ImGui::SameLine(x);
+    ImVec4 fpsc = ft.fps >= 60.0f ? ImVec4(0.3f, 0.85f, 0.3f, 1.0f) :
+                  ft.fps >= 30.0f ? ImVec4(1.0f, 0.6f, 0.0f, 1.0f) :
+                  ImVec4(1.0f, 0.2f, 0.2f, 1.0f);
+    ImGui::TextColored(fpsc, "FPS: %.1f", ft.fps);
+    x += 80;
+
+    // Frame
+    ImGui::SameLine(x); ImGui::Text("Frame: #%lld", (long long)result.frameNumber);
+    x += 120;
+
+    // Resolution
+    if (m_getFrame) {
+        cv::Mat f = m_getFrame();
+        if (!f.empty()) {
+            ImGui::SameLine(x); ImGui::Text("%dx%d", f.cols, f.rows);
+            x += 100;
+        }
+    }
+
+    // Baseline
+    ImGui::SameLine(x);
+    if (result.stereoModel.active) {
+        ImGui::TextColored(ImVec4(0.3f, 0.85f, 0.3f, 1.0f), "Baseline: Locked");
+    } else {
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Baseline: None");
+    }
+
+    // Right-aligned: Scene confidence
+    ImGui::SameLine(aw - 120);
+    ImVec4 ssc = result.sceneConfidence.reliable ? ImVec4(0.4f, 0.7f, 1.0f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
+    ImGui::TextColored(ssc, "Scene: %.0f%%", result.sceneConfidence.overall * 100.0);
+}
+
+// ===========================================================================
+// Hub Panel – tabbed content (left side)
+// ===========================================================================
+void Overlay::renderHubPanel(const AnalysisResult& result, const FrameTime& ft, const MetricHistory& history) {
+    if (ImGui::BeginTabBar("HubTabs", ImGuiTabBarFlags_Reorderable)) {
         if (ImGui::BeginTabItem("Summary")) {
             renderSummaryTab(result, ft);
             ImGui::EndTabItem();
@@ -408,22 +774,262 @@ void Overlay::renderHubWindow(const AnalysisResult& result, const FrameTime& ft,
             renderIssuesTab(result);
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Checks")) {
-            renderChecksTab();
-            ImGui::EndTabItem();
-        }
         if (ImGui::BeginTabItem("Graphs")) {
             renderGraphsTab(history);
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
     }
+}
+
+// ===========================================================================
+// Viz Panel – shows the current mode's rendered output (right side)
+// ===========================================================================
+void Overlay::renderVizPanel() {
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+
+    if (m_vizSRV) {
+        float aspect = (float)m_vizTexWidth / (float)std::max(m_vizTexHeight, 1);
+        float imgW = avail.x;
+        float imgH = imgW / aspect;
+        if (imgH > avail.y - 24.0f) {
+            imgH = avail.y - 24.0f;
+            imgW = imgH * aspect;
+        }
+        // Center image
+        float offsetX = std::max(0.0f, (avail.x - imgW) * 0.5f);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
+        ImGui::Image((ImTextureID)m_vizSRV.Get(), ImVec2(imgW, imgH));
+
+        const char* modeName = VisualizationModeName(m_vizMode.load());
+        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.8f, 1.0f), "Mode: %s", modeName);
+    } else {
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No visualization data");
+    }
+}
+
+// ===========================================================================
+// Settings Dialog
+// ===========================================================================
+void Overlay::renderSettingsDialog() {
+    ImGui::SetNextWindowSize(ImVec2(520, 440), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Settings", &m_showSettings);
+
+    CheckToggles toggles;
+    AppConfig appCfg;
+    bool haveConfig = false;
+    if (m_getChecks) toggles = m_getChecks();
+    if (m_getAppConfig) { appCfg = m_getAppConfig(); haveConfig = true; }
+
+    auto toggle = [&](const char* label, bool& flag) {
+        if (ImGui::Checkbox(label, &flag)) {
+            if (m_updateChecks) m_updateChecks(toggles);
+        }
+    };
+
+    if (ImGui::BeginTabBar("SettingsTabs")) {
+        if (ImGui::BeginTabItem("Analysis Modules")) {
+            if (ImGui::BeginChild("SettingsModules", ImVec2(0, 0), true)) {
+            if (ImGui::CollapsingHeader("Image Analysis", ImGuiTreeNodeFlags_DefaultOpen)) {
+                toggle("SSIM", toggles.ssim);
+                toggle("Pixel Difference", toggles.pixelDiff);
+                toggle("Histogram", toggles.histogram);
+                toggle("Edge Detection", toggles.edge);
+                toggle("ORB Features", toggles.orb);
+                toggle("Optical Flow", toggles.opticalFlow);
+                toggle("Blur Detection", toggles.blur);
+                toggle("Brightness", toggles.brightness);
+                toggle("Contrast", toggles.contrast);
+                toggle("Bloom", toggles.bloom);
+                toggle("Shadow", toggles.shadow);
+                toggle("Stereo Offset", toggles.stereoOffset);
+                toggle("OCR Text", toggles.ocr);
+            }
+            if (ImGui::CollapsingHeader("Correspondence", ImGuiTreeNodeFlags_DefaultOpen)) {
+                toggle("Stereo Correspondence", toggles.correspondence);
+                toggle("Disparity Metrics", toggles.disparityMetrics);
+                toggle("Match Quality", toggles.matchQuality);
+            }
+            if (ImGui::CollapsingHeader("Asymmetry", ImGuiTreeNodeFlags_DefaultOpen)) {
+                toggle("Master Asymmetry", toggles.asymmetry);
+                ImGui::Indent(16);
+                toggle("Lighting", toggles.lightingAsym);
+                toggle("Bloom", toggles.bloomAsym);
+                toggle("Shadow", toggles.shadowAsym);
+                toggle("Post-Process", toggles.postProcessAsym);
+                toggle("Texture", toggles.textureAsym);
+                toggle("Blur", toggles.blurAsym);
+                toggle("Chromatic", toggles.chromaticAsym);
+                toggle("Contrast", toggles.contrastAsym);
+                ImGui::Unindent(16);
+            }
+            if (ImGui::CollapsingHeader("Issue Detection", ImGuiTreeNodeFlags_DefaultOpen)) {
+                toggle("Detect Issues", toggles.detectIssues);
+                ImGui::Indent(16);
+                toggle("Issue Classification", toggles.issueClassification);
+                toggle("Issue Merging", toggles.issueMerging);
+                toggle("Geometry Missing Check", toggles.geometryMissing);
+                ImGui::Unindent(16);
+            }
+            if (ImGui::CollapsingHeader("Scoring", ImGuiTreeNodeFlags_DefaultOpen)) {
+                toggle("Temporal Analysis", toggles.temporal);
+                toggle("Scene Confidence", toggles.sceneConfidence);
+                toggle("Health Score", toggles.healthScore);
+                toggle("Baseline Comparison", toggles.baselineComparison);
+            }
+            }
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Thresholds")) {
+            if (ImGui::BeginChild("SettingsThresholds", ImVec2(0, 0), true)) {
+                if (haveConfig) {
+                    auto& th = appCfg.thresholds;
+                    ImGui::Text("Detection Thresholds");
+                    ImGui::Separator();
+                    float dragMinIssueConf = (float)th.minIssueConfidence;
+                    float dragSceneConfThresh = (float)appCfg.sceneConfidenceThreshold;
+                    float dragSsimWarn = (float)th.ssimWarning;
+                    float dragSsimFail = (float)th.ssimFail;
+                    float dragPixWarn = (float)th.pixelDiffWarning;
+                    float dragPixFail = (float)th.pixelDiffFail;
+                    float dragBrightWarn = (float)th.brightnessDeltaWarning;
+                    float dragBrightFail = (float)th.brightnessDeltaFail;
+
+                    ImGui::SetNextItemWidth(160); ImGui::DragInt("Diff Threshold", &th.diffThreshold, 1, 1, 255);
+                    ImGui::SetNextItemWidth(160); ImGui::DragInt("Min Issue Area", &th.minIssueArea, 10, 10, 5000);
+                    ImGui::SetNextItemWidth(160); if (ImGui::DragFloat("Min Issue Confidence", &dragMinIssueConf, 0.01f, 0.0f, 1.0f)) th.minIssueConfidence = dragMinIssueConf;
+                    ImGui::SetNextItemWidth(160); if (ImGui::DragFloat("Scene Confidence Thresh", &dragSceneConfThresh, 0.01f, 0.0f, 1.0f)) appCfg.sceneConfidenceThreshold = dragSceneConfThresh;
+                    ImGui::Dummy(ImVec2(0, 8));
+
+                    ImGui::Text("Alignment Thresholds");
+                    ImGui::Separator();
+                    ImGui::SetNextItemWidth(160); if (ImGui::DragFloat("SSIM Warning", &dragSsimWarn, 0.01f, 0.0f, 1.0f)) th.ssimWarning = dragSsimWarn;
+                    ImGui::SetNextItemWidth(160); if (ImGui::DragFloat("SSIM Fail", &dragSsimFail, 0.01f, 0.0f, 1.0f)) th.ssimFail = dragSsimFail;
+                    ImGui::SetNextItemWidth(160); if (ImGui::DragFloat("PixDiff Warning %", &dragPixWarn, 0.1f, 0.0f, 100.0f)) th.pixelDiffWarning = dragPixWarn;
+                    ImGui::SetNextItemWidth(160); if (ImGui::DragFloat("PixDiff Fail %", &dragPixFail, 0.1f, 0.0f, 100.0f)) th.pixelDiffFail = dragPixFail;
+                    ImGui::SetNextItemWidth(160); if (ImGui::DragFloat("Brightness \xce\x94 Warning", &dragBrightWarn, 0.001f, 0.0f, 1.0f)) th.brightnessDeltaWarning = dragBrightWarn;
+                    ImGui::SetNextItemWidth(160); if (ImGui::DragFloat("Brightness \xce\x94 Fail", &dragBrightFail, 0.001f, 0.0f, 1.0f)) th.brightnessDeltaFail = dragBrightFail;
+
+                    ImGui::Dummy(ImVec2(0, 8));
+                    ImGui::Text("Performance");
+                    ImGui::Separator();
+                    ImGui::SetNextItemWidth(160); ImGui::DragInt("Target FPS", &appCfg.targetFps, 1, 1, 240);
+
+                    if (ImGui::Button("Apply Thresholds")) {
+                        if (m_setAppConfig) m_setAppConfig(appCfg);
+                        spdlog::info("Thresholds updated via settings dialog");
+                    }
+                } else {
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Config not available");
+                }
+            }
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
+    }
+
+    // Bottom buttons
+    ImGui::Separator();
+    if (ImGui::Button("Enable All")) {
+        toggles = CheckToggles{};
+        if (m_updateChecks) m_updateChecks(toggles);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Disable All")) {
+        CheckToggles allOff;
+        memset(&allOff, 0, sizeof(allOff));
+        if (m_updateChecks) m_updateChecks(allOff);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Close")) {
+        m_showSettings = false;
+    }
 
     ImGui::End();
 }
 
 // ---------------------------------------------------------------------------
-// Summary Tab – at-a-glance key indicators
+// Hotkey Reference Dialog
+// ---------------------------------------------------------------------------
+void Overlay::renderHotkeyDialog() {
+    ImGui::SetNextWindowSize(ImVec2(420, 360), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Keyboard Shortcuts", &m_showHotkeys);
+
+    if (ImGui::BeginTable("Hotkeys", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn("Key");
+        ImGui::TableSetupColumn("Action");
+        ImGui::TableHeadersRow();
+
+        auto hotkey = [](const char* key, const char* action) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn(); ImGui::Text("%s", key);
+            ImGui::TableNextColumn(); ImGui::Text("%s", action);
+        };
+
+        hotkey("F1", "Toggle overlay visibility");
+        hotkey("F2", "Freeze / unfreeze analysis");
+        hotkey("F3", "Stereo Difference Overlay");
+        hotkey("F4", "Difference Heatmap");
+        hotkey("F5", "Toggle Normal / Heatmap");
+        hotkey("F6", "Take screenshot");
+        hotkey("F7", "Start / stop logging (CSV + JSON)");
+        hotkey("F8", "Start / stop recording");
+        hotkey("F9", "Set baseline (capture stereo model)");
+        hotkey("Ctrl+F1", "Edge Comparison mode");
+        hotkey("Ctrl+F2", "Feature Match Overlay mode");
+        hotkey("Ctrl+F3", "Histogram View mode");
+        hotkey("Ctrl+F4", "Blur Map mode");
+        hotkey("Ctrl+F5", "Blink Left (left eye fullscreen)");
+        hotkey("Ctrl+F6", "Blink Right (right eye fullscreen)");
+        hotkey("Ctrl+F7", "Disparity Heatmap mode");
+
+        ImGui::EndTable();
+    }
+
+    ImGui::Dummy(ImVec2(0, 4));
+    if (ImGui::Button("Close")) {
+        m_showHotkeys = false;
+    }
+
+    ImGui::End();
+}
+
+// ---------------------------------------------------------------------------
+// About Dialog
+// ---------------------------------------------------------------------------
+void Overlay::renderAboutDialog() {
+    ImGui::SetNextWindowSize(ImVec2(380, 220), ImGuiCond_FirstUseEver);
+    ImGui::Begin("About Stereo Inspector", &m_showAbout);
+
+    ImGui::TextColored(ImVec4(0.3f, 0.65f, 1.0f, 1.0f), "Stereo Inspector");
+    ImGui::SameLine();
+    ImGui::Text("v1.0.0");
+    ImGui::Separator();
+    ImGui::Text("Real-time VR stereo inconsistency detection tool.");
+    ImGui::Dummy(ImVec2(0, 4));
+    ImGui::TextWrapped("Captures side-by-side VR output via DXGI Desktop Duplication, "
+                       "computes dense stereo correspondence, warps the right eye to the "
+                       "left coordinate system, and compares aligned images to detect "
+                       "genuine rendering defects.");
+    ImGui::Dummy(ImVec2(0, 4));
+    ImGui::Text("Built with: C++20, OpenCV, DirectX 11, Dear ImGui");
+    ImGui::Text("Platform: Windows 10/11");
+    ImGui::Separator();
+    ImGui::Text("GitHub: github.com/agentnuclear/StereoInspector");
+
+    if (ImGui::Button("Close")) {
+        m_showAbout = false;
+    }
+
+    ImGui::End();
+}
+
+// ---------------------------------------------------------------------------
+// Summary Tab
 // ---------------------------------------------------------------------------
 void Overlay::renderSummaryTab(const AnalysisResult& result, const FrameTime& ft) {
     // Status row
@@ -483,7 +1089,7 @@ void Overlay::renderSummaryTab(const AnalysisResult& result, const FrameTime& ft
 
     ImGui::Separator();
 
-    // Visualization mode
+    // Viz mode
     const char* modeName = VisualizationModeName(m_vizMode.load());
     ImGui::Text("Viz Mode:"); ImGui::SameLine(80);
     ImGui::TextColored(ImVec4(0.6f,0.6f,0.8f,1.0f), "%s", modeName);
@@ -493,7 +1099,7 @@ void Overlay::renderSummaryTab(const AnalysisResult& result, const FrameTime& ft
     if (totalIssues > 0) {
         ImGui::Text("Issues:"); ImGui::SameLine(80);
         ImVec4 ic2 = totalIssues > 5 ? ImVec4(1.0f,0.3f,0.3f,1.0f) : ImVec4(1.0f,0.6f,0.0f,1.0f);
-        ImGui::TextColored(ic2, "%d (%zu deviations, %zu region)",
+        ImGui::TextColored(ic2, "%d (%zu dev, %zu reg)",
             totalIssues, result.deviations.size(), result.detectedIssues.size());
     } else {
         ImGui::Text("Issues:"); ImGui::SameLine(80);
@@ -502,19 +1108,13 @@ void Overlay::renderSummaryTab(const AnalysisResult& result, const FrameTime& ft
 }
 
 // ---------------------------------------------------------------------------
-// Status Tab – overview + controls (L1/L2/L3 progressive disclosure)
+// Status Tab
 // ---------------------------------------------------------------------------
 void Overlay::renderStatusTab(const AnalysisResult& result, const FrameTime& ft) {
-    // Level 1: critical essentials (always visible)
-    // Level 2: detailed metrics (collapsible)
-    // Level 3: deep debug (collapsible)
-
-    // Controls area at top
     renderControlsArea(result);
 
     ImGui::Separator();
 
-    // -- Level 2: Frame Timing & Details --
     if (ImGui::CollapsingHeader("Frame Details", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Text("Frame:    %lld", (long long)result.frameNumber);
         ImGui::Text("Capture:  %.1f fps / %.1f ms", ft.captureFps, ft.captureMs);
@@ -529,11 +1129,10 @@ void Overlay::renderStatusTab(const AnalysisResult& result, const FrameTime& ft)
             ImGui::Text("Age:    %.0fs", elapsed);
             ImGui::Text("Tracked: %llu", (unsigned long long)result.stereoModel.framesCompared);
         } else {
-            ImGui::TextColored(ImVec4(0.5f,0.5f,0.5f,1.0f), "No baseline — sync to enable comparison");
+            ImGui::TextColored(ImVec4(0.5f,0.5f,0.5f,1.0f), "No baseline \u2014 sync to enable comparison");
         }
     }
 
-    // -- Level 3: Raw Details (debug) --
     if (ImGui::CollapsingHeader("Raw Details")) {
         ImGui::Text("ORB Matches:  %d", result.featureMatchCount);
         ImGui::Text("Opt Flow:     %.2f", result.opticalFlowMagnitude);
@@ -552,13 +1151,12 @@ void Overlay::renderStatusTab(const AnalysisResult& result, const FrameTime& ft)
 }
 
 // ---------------------------------------------------------------------------
-// Controls area (within Status tab)
+// Controls area
 // ---------------------------------------------------------------------------
 void Overlay::renderControlsArea(const AnalysisResult& result) {
     bool hasBase = result.stereoModel.active;
     float bw = ImGui::GetContentRegionAvail().x;
 
-    // Baseline management row
     if (hasBase) {
         ImGui::TextColored(ImVec4(0.3f,0.85f,0.3f,1.0f), "Baseline: Locked");
         ImGui::SameLine();
@@ -580,13 +1178,12 @@ void Overlay::renderControlsArea(const AnalysisResult& result) {
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reset all window positions to defaults");
 
-    // Visualization mode buttons
     ImGui::Dummy(ImVec2(0, 4));
     renderModeButtons(m_vizMode.load());
 }
 
 // ---------------------------------------------------------------------------
-// Metrics Tab – per-metric comparison table
+// Metrics Tab
 // ---------------------------------------------------------------------------
 void Overlay::renderMetricsTab(const AnalysisResult& result) {
     auto row = [&](const char* label, double cur, double ref, double mul, const char* fmt) {
@@ -602,11 +1199,9 @@ void Overlay::renderMetricsTab(const AnalysisResult& result) {
     };
 
     if (result.stereoModel.active) {
-        // Header
         ImGui::TextColored(ImVec4(0.5f,0.5f,0.5f,1.0f), "%-9s %6s %6s %s", "", "Base", "Cur", "\u0394");
         ImGui::Separator();
 
-        // -- Level 1: primary metrics --
         if (ImGui::CollapsingHeader("Alignment", ImGuiTreeNodeFlags_DefaultOpen)) {
             row("SSIM",       result.residual.alignedSSIM,           result.stereoModel.refAlignedSSIM,1.0,"%.4f");
             row("PixDiff %",  result.residual.alignedPixDiffPercent, result.stereoModel.refAlignedPixDiffPercent,1.0,"%.2f");
@@ -616,14 +1211,12 @@ void Overlay::renderMetricsTab(const AnalysisResult& result) {
             row("Occlusion",  result.residual.occlusionRatio,         result.stereoModel.refOcclusionRatio,100.0,"%.1f%%");
         }
 
-        // -- Level 2: secondary metrics --
         if (ImGui::CollapsingHeader("Disparity & Asymmetry")) {
             row("Disp Mean",  result.disparity.meanDisparity,         result.stereoModel.refDisparityMean,1.0,"%.1f");
             row("Bloom Asym", result.asymmetry.bloomAsymmetry,        result.stereoModel.refBloomAsymmetry,1.0,"%.4f");
             row("Shadow",     result.asymmetry.shadowAsymmetry,       result.stereoModel.refShadowAsymmetry,1.0,"%.4f");
         }
 
-        // -- Level 3: all remaining --
         if (ImGui::CollapsingHeader("All Metrics")) {
             row("Disp Range", result.disparity.disparityRange,        result.stereoModel.refDisparityRange,1.0,"%.1f");
             row("Disp Smooth",result.disparity.smoothness,            result.stereoModel.refDisparitySmoothness,1.0,"%.3f");
@@ -649,7 +1242,7 @@ void Overlay::renderMetricsTab(const AnalysisResult& result) {
 }
 
 // ---------------------------------------------------------------------------
-// Issues Tab – grouped by category, with severity indicators
+// Issues Tab
 // ---------------------------------------------------------------------------
 void Overlay::renderIssuesTab(const AnalysisResult& result) {
     if (result.stereoStatus == StereoStatus::UNKNOWN) {
@@ -658,7 +1251,6 @@ void Overlay::renderIssuesTab(const AnalysisResult& result) {
         return;
     }
 
-    // -- Deviation issues (comparison against baseline) --
     if (!result.deviations.empty()) {
         bool hasFail = false, hasWarn = false;
         for (auto& d : result.deviations) { if (d.fail) hasFail = true; if (d.warning) hasWarn = true; }
@@ -695,7 +1287,6 @@ void Overlay::renderIssuesTab(const AnalysisResult& result) {
         ImGui::TextColored(ImVec4(0.3f,0.85f,0.3f,1.0f), "No deviations \u2014 stereo matches baseline.");
     }
 
-    // -- Detected region issues --
     int validCount = 0;
     for (auto& iss : result.detectedIssues) { if (!iss.isInvalidRegion) validCount++; }
 
@@ -704,7 +1295,9 @@ void Overlay::renderIssuesTab(const AnalysisResult& result) {
         ImGui::TextColored(ImVec4(1.0f,0.6f,0.2f,1.0f), "Region Issues (%d)", validCount);
 
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 8));
-        ImGui::BeginChild("IssueList", ImVec2(0, ImGui::GetContentRegionAvail().y * 0.55f), true);
+        float availH = ImGui::GetContentRegionAvail().y;
+        float listH = m_selectedIssueIndex >= 0 ? availH * 0.45f : availH * 0.85f;
+        ImGui::BeginChild("IssueList", ImVec2(0, listH), true);
 
         for (int i = 0; i < (int)result.detectedIssues.size(); i++) {
             const auto& iss = result.detectedIssues[i];
@@ -771,7 +1364,6 @@ void Overlay::renderIssuesTab(const AnalysisResult& result) {
         ImGui::EndChild();
         ImGui::PopStyleVar();
 
-        // -- Selected issue detail --
         if (m_selectedIssueIndex >= 0 && m_selectedIssueIndex < (int)result.detectedIssues.size()) {
             const auto& selIssue = result.detectedIssues[m_selectedIssueIndex];
             if (!selIssue.isInvalidRegion) {
@@ -805,7 +1397,6 @@ void Overlay::renderIssuesTab(const AnalysisResult& result) {
         }
     }
 
-    // No issues at all
     if (result.deviations.empty() && result.detectedIssues.empty() && result.stereoStatus != StereoStatus::UNKNOWN) {
         if (!result.stereoModel.active && !result.issues.empty()) {
             ImGui::TextColored(ImVec4(1.0f,0.6f,0.0f,1.0f), "Issues (no baseline):");
@@ -816,7 +1407,6 @@ void Overlay::renderIssuesTab(const AnalysisResult& result) {
         }
     }
 
-    // -- Invalid/filtered regions (shown collapsed) --
     int invalidCount = 0;
     for (auto& iss : result.detectedIssues) { if (iss.isInvalidRegion) invalidCount++; }
     if (invalidCount > 0) {
@@ -837,110 +1427,7 @@ void Overlay::renderIssuesTab(const AnalysisResult& result) {
 }
 
 // ---------------------------------------------------------------------------
-// Checks Tab – per-check enable/disable toggles
-// ---------------------------------------------------------------------------
-void Overlay::renderChecksTab() {
-    CheckToggles toggles;
-    if (m_getChecks) {
-        toggles = m_getChecks();
-    }
-
-    auto toggle = [&](const char* label, bool& flag) {
-        if (ImGui::Checkbox(label, &flag)) {
-            if (m_updateChecks) m_updateChecks(toggles);
-        }
-    };
-
-    if (ImGui::CollapsingHeader("Image Analysis", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Indent(8);
-        toggle("SSIM", toggles.ssim);
-        toggle("Pixel Difference", toggles.pixelDiff);
-        toggle("Histogram", toggles.histogram);
-        toggle("Edge", toggles.edge);
-        toggle("ORB Features", toggles.orb);
-        toggle("Optical Flow", toggles.opticalFlow);
-        toggle("Blur", toggles.blur);
-        toggle("Brightness", toggles.brightness);
-        toggle("Contrast", toggles.contrast);
-        toggle("Bloom", toggles.bloom);
-        toggle("Shadow", toggles.shadow);
-        toggle("Stereo Offset", toggles.stereoOffset);
-        toggle("OCR Text", toggles.ocr);
-        ImGui::Unindent(8);
-    }
-
-    ImGui::Dummy(ImVec2(0, 4));
-
-    if (ImGui::CollapsingHeader("Correspondence", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Indent(8);
-        toggle("Stereo Correspondence", toggles.correspondence);
-        toggle("Disparity Metrics", toggles.disparityMetrics);
-        toggle("Match Quality", toggles.matchQuality);
-        ImGui::Unindent(8);
-    }
-
-    ImGui::Dummy(ImVec2(0, 4));
-
-    if (ImGui::CollapsingHeader("Asymmetry", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Indent(8);
-        toggle("Master Asymmetry", toggles.asymmetry);
-        ImGui::Indent(16);
-        toggle("  Lighting", toggles.lightingAsym);
-        toggle("  Bloom", toggles.bloomAsym);
-        toggle("  Shadow", toggles.shadowAsym);
-        toggle("  Post-Process", toggles.postProcessAsym);
-        toggle("  Texture", toggles.textureAsym);
-        toggle("  Blur", toggles.blurAsym);
-        toggle("  Chromatic", toggles.chromaticAsym);
-        toggle("  Contrast", toggles.contrastAsym);
-        ImGui::Unindent(24);
-    }
-
-    ImGui::Dummy(ImVec2(0, 4));
-
-    if (ImGui::CollapsingHeader("Issue Detection", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Indent(8);
-        toggle("Detect Issues", toggles.detectIssues);
-        toggle("  Issue Classification", toggles.issueClassification);
-        toggle("  Issue Merging", toggles.issueMerging);
-        toggle("  Geometry Missing Check", toggles.geometryMissing);
-        ImGui::Unindent(8);
-    }
-
-    ImGui::Dummy(ImVec2(0, 4));
-
-    if (ImGui::CollapsingHeader("Scoring & Analysis", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Indent(8);
-        toggle("Temporal Analysis", toggles.temporal);
-        toggle("Scene Confidence", toggles.sceneConfidence);
-        toggle("Health Score", toggles.healthScore);
-        toggle("Baseline Comparison", toggles.baselineComparison);
-        ImGui::Unindent(8);
-    }
-
-    ImGui::Dummy(ImVec2(0, 6));
-
-    // Quick-select buttons
-    ImGui::Text("Quick Actions:");
-    if (ImGui::SmallButton("Enable All")) {
-        toggles = CheckToggles{};
-        for (auto& [key, val] : { std::pair<const char*, bool*>("", &toggles.correspondence) }) {
-            (void)key; (void)val;
-        }
-        // Set all to true by re-initializing
-        toggles = CheckToggles{};
-        if (m_updateChecks) m_updateChecks(toggles);
-    }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Disable All")) {
-        CheckToggles allOff;
-        memset(&allOff, 0, sizeof(allOff));
-        if (m_updateChecks) m_updateChecks(allOff);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Graphs Tab – 8 sparkline graphs
+// Graphs Tab
 // ---------------------------------------------------------------------------
 void Overlay::renderGraphsTab(const MetricHistory& history) {
     if (history.healthScore.empty()) {
@@ -950,33 +1437,6 @@ void Overlay::renderGraphsTab(const MetricHistory& history) {
     ImGui::TextColored(ImVec4(0.5f,0.5f,0.5f,1.0f), "Last %zu frames", history.healthScore.size());
     ImGui::Separator();
     renderGraphPanel(history);
-}
-
-// ---------------------------------------------------------------------------
-// Visualization Window – shows the current mode's rendered output
-// ---------------------------------------------------------------------------
-void Overlay::renderVisualizationWindow() {
-    ImGui::SetNextWindowSize(ImVec2(420, 320), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Visualization", nullptr, ImGuiWindowFlags_NoScrollbar);
-
-    if (m_vizSRV) {
-        ImVec2 avail = ImGui::GetContentRegionAvail();
-        float aspect = (float)m_vizTexWidth / (float)std::max(m_vizTexHeight, 1);
-        float imgW = avail.x;
-        float imgH = imgW / aspect;
-        if (imgH > avail.y) {
-            imgH = avail.y;
-            imgW = imgH * aspect;
-        }
-        ImGui::Image((ImTextureID)m_vizSRV.Get(), ImVec2(imgW, imgH));
-
-        const char* modeName = VisualizationModeName(m_vizMode.load());
-        ImGui::TextColored(ImVec4(0.6f,0.6f,0.8f,1.0f), "Mode: %s", modeName);
-    } else {
-        ImGui::TextColored(ImVec4(0.5f,0.5f,0.5f,1.0f), "No visualization data");
-    }
-
-    ImGui::End();
 }
 
 // ===========================================================================
@@ -990,9 +1450,17 @@ void Overlay::renderFrame() {
     m_d3dContext->ClearRenderTargetView(m_rtView.Get(), clearColor);
 
     if (!m_captureSafe.load()) {
-        renderWindows();
+        ImGui_ImplDX11_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
 
-        // Update visualization texture
+        renderSyncFeedback();
+
+        if (m_visible.load()) {
+            renderMainWindow();
+        }
+
+        // Update visualization texture (always, even if hidden, for quick resume)
         if (m_getFrame && m_getResult) {
             cv::Mat frame = m_getFrame();
             if (!frame.empty()) {
@@ -1014,6 +1482,8 @@ void Overlay::renderFrame() {
                 updateVizTexture(viz);
             }
         }
+
+        ImGui::Render();
     }
 
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
